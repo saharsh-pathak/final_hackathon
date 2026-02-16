@@ -1,0 +1,7 @@
+{
+  "name": "Hyperlocal AQI",
+  "description": "A real-time sub-regional air quality dashboard for Mayur Vihar, Delhi, featuring triangular verification and Indian NAQI compliance.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
