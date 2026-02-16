@@ -39,29 +39,34 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, on
                         </button>
                     </div>
 
-                    <div>
-                        <div className="flex justify-between mb-2">
-                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Trigger Threshold (AQI)</span>
-                            <span className="text-sm font-black text-blue-600">{status.threshold}</span>
+                    {status.autoMode && (
+                        <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl animate-in fade-in slide-in-from-left-2 duration-300">
+                            <div className="flex gap-3">
+                                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center shrink-0">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1e3a8a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>
+                                </div>
+                                <div className="space-y-1">
+                                    <h4 className="text-[9px] font-black text-blue-900 uppercase tracking-widest">Proactive Maintenance</h4>
+                                    <p className="text-[10px] font-bold text-blue-700 leading-tight">
+                                        System targeting <span className="underlineDecoration">Healthy Zone (AQI 80)</span>.
+                                    </p>
+                                    <p className="text-[8px] font-medium text-blue-500 italic">
+                                        Frequent short bursts prevent hazardous pollution build-up.
+                                    </p>
+                                </div>
+                            </div>
                         </div>
-                        <input
-                            type="range"
-                            min="50"
-                            max="400"
-                            step="10"
-                            value={status.threshold}
-                            onChange={(e) => onSetThreshold(parseInt(e.target.value))}
-                            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                        />
-                    </div>
+                    )}
 
-                    <button
-                        onClick={onTrigger}
-                        disabled={status.state === SprinklerState.ACTIVE}
-                        className={`w-full py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg ${status.state === SprinklerState.ACTIVE ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-blue-900 text-white hover:bg-blue-800 active:scale-95'}`}
-                    >
-                        {status.state === SprinklerState.ACTIVE ? 'Spraying in Progress...' : 'Activate Mist Now'}
-                    </button>
+                    {!status.autoMode && (
+                        <button
+                            onClick={onTrigger}
+                            disabled={status.state === SprinklerState.ACTIVE}
+                            className={`w-full py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg ${status.state === SprinklerState.ACTIVE ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-blue-900 text-white hover:bg-blue-800 active:scale-95'}`}
+                        >
+                            {status.state === SprinklerState.ACTIVE ? 'Spraying in Progress...' : 'Activate Mist Now'}
+                        </button>
+                    )}
                 </div>
 
                 <div className="bg-slate-900 rounded-2xl p-6 text-white overflow-hidden relative">

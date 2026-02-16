@@ -63,45 +63,81 @@ export const NAQI_BREAKPOINTS: AQIBreakpoint[] = [
   }
 ];
 
+export const OFFICIAL_STATION_DATA: LocationData = {
+  id: 'official-patparganj',
+  name: 'Patparganj (DPCC)',
+  coordinates: [28.6235, 77.2872],
+  isOfficial: true,
+  type: 'OFFICIAL',
+  officialData: {
+    name: 'DPCC Patparganj Monitoring Station',
+    type: 'Official GB Reference Station',
+    pollutants: ['PM2.5', 'PM10', 'NO2', 'SO2', 'CO', 'O3', 'NH3'],
+    coverageRadius: 5
+  },
+  currentReading: {
+    timestamp: new Date().toISOString(),
+    aqi: 285,
+    pm25: 135,
+    pm10: 240,
+    category: AQICategory.POOR,
+    humidity: 45
+  },
+  history: [],
+  predictions: []
+};
+
 export const TEMP_AQI_LOCATIONS: LocationData[] = [
   {
     id: 'node-1',
-    name: 'Sensor Node 1 (Main Hardware)',
-    coordinates: [28.6139, 77.2090],
+    name: 'Sensor Node 1 (Phase 1 Market)',
+    coordinates: [28.6095, 77.2910],
     isOfficial: false,
     isSimulated: false,
+    type: 'TEMP_NODE',
     currentReading: {} as any,
     history: [],
     predictions: []
   },
   {
     id: 'node-2',
-    name: 'Sensor Node 2 (Colony North)',
-    coordinates: [28.6150, 77.2105],
+    name: 'Sensor Node 2 (Phase 2 Residential)',
+    coordinates: [28.6186, 77.3025],
     isOfficial: false,
     isSimulated: true,
+    type: 'TEMP_NODE',
     currentReading: {} as any,
     history: [],
     predictions: []
   },
   {
     id: 'node-3',
-    name: 'Sensor Node 3 (Colony East)',
-    coordinates: [28.6125, 77.2120],
+    name: 'Sensor Node 3 (NH24 Highway)',
+    coordinates: [28.6220, 77.2800],
     isOfficial: false,
     isSimulated: true,
+    type: 'TEMP_NODE',
     currentReading: {} as any,
     history: [],
     predictions: []
   },
   {
     id: 'node-4',
-    name: 'Sensor Node 4 (Colony South)',
-    coordinates: [28.6110, 77.2100],
+    name: 'Sensor Node 4 (Sanjay Lake Park)',
+    coordinates: [28.6130, 77.3000],
     isOfficial: false,
     isSimulated: true,
+    type: 'TEMP_NODE',
     currentReading: {} as any,
     history: [],
     predictions: []
   }
+];
+
+export const MAP_CENTER: [number, number] = [28.6089, 77.2981];
+export const COLONY_POLYGON: [number, number][] = [
+  [28.6250, 77.2750],
+  [28.6250, 77.3100],
+  [28.6000, 77.3100],
+  [28.6000, 77.2750]
 ];

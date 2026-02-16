@@ -70,8 +70,16 @@ export interface VerificationData {
   tier: ConfidenceTier;
   statusMessage: string;
   isHyperlocalEvent: boolean;
-  // Added anomalyDetected property to match the data returned by the verification service
   anomalyDetected: boolean;
+}
+
+export type StationType = 'OFFICIAL' | 'TEMP_NODE';
+
+export interface OfficialStationData {
+  name: string;
+  type: string;
+  pollutants: string[];
+  coverageRadius: number; // in km
 }
 
 export interface LocationData {
@@ -85,4 +93,6 @@ export interface LocationData {
   isOfficial: boolean;
   anchorId?: string;
   isSimulated?: boolean;
+  type?: StationType;
+  officialData?: OfficialStationData;
 }
