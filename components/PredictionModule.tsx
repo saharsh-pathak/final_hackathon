@@ -17,7 +17,7 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({ predictions }) => {
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h3 className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-1">Forecast Module</h3>
-                    <h2 className="text-xl font-black text-slate-900">24-Hour Prediction</h2>
+                    <h2 className="text-xl font-black text-slate-900">30-Minute Forecast</h2>
                 </div>
                 <div className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-[10px] font-black uppercase tracking-widest">
                     ±20% Confidence
@@ -44,9 +44,9 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({ predictions }) => {
                 </div>
 
                 <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">
-                    <span>{new Date(predictions[0]?.timestamp).getHours()}:00</span>
-                    <span>Next 24 Hours</span>
-                    <span>{new Date(predictions[predictions.length - 1]?.timestamp).getHours()}:00</span>
+                    <span>{new Date(predictions[0]?.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span>Next 30 Minutes</span>
+                    <span>{new Date(predictions[predictions.length - 1]?.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
 
                 {/* Hourly Table */}
@@ -60,7 +60,7 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({ predictions }) => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                            {predictions.filter((_, i) => i % 3 === 0).map((p, idx) => (
+                            {predictions.map((p, idx) => (
                                 <tr key={idx} className="hover:bg-slate-50 transition-colors">
                                     <td className="px-4 py-3 text-xs font-bold text-slate-700">
                                         {new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

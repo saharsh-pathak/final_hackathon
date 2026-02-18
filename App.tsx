@@ -12,13 +12,13 @@ const App: React.FC = () => {
   const [officialStation, setOfficialStation] = useState<LocationData>(OFFICIAL_STATION_DATA);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showComparison, setShowComparison] = useState(false);
   const [sprinklerStatus, setSprinklerStatus] = useState<SprinklerStatus>({
     state: SprinklerState.INACTIVE,
     threshold: 80, // Target AQI
-    autoMode: true
+    autoMode: true // Always on — automatic mode is the only mode
   });
   const [sprinklerHistory, setSprinklerHistory] = useState<any[]>([]);
+  const [zoneLastTreated, setZoneLastTreated] = useState<{ [zoneId: string]: Date }>({});
 
   useEffect(() => {
     const initData = async () => {
@@ -58,6 +58,78 @@ const App: React.FC = () => {
 
         setLocations(data);
         if (data.length > 0) setSelectedId(data[0].id);
+
+        // Generate realistic mock history that matches current sensor readings
+        // Current values: Node1=139, Node2=154, Node3=198, Node4=131
+        const now = new Date();
+        const mockHistory = [
+          {
+            timestamp: new Date(now.getTime() - 30 * 60000).toISOString(), // 30 min ago
+            duration: 3.2,
+            aqiBefore: 238,
+            aqiAfter: 198, // Matches Node 3 current reading
+            affectedZones: ['NH24 Highway Exit'],
+            zoneCount: 1,
+            zoneId: data[2]?.id // Node 3
+          },
+          {
+            timestamp: new Date(now.getTime() - 55 * 60000).toISOString(), // 55 min ago
+            duration: 2.8,
+            aqiBefore: 186,
+            aqiAfter: 154, // Matches Node 2 current reading
+            affectedZones: ['Phase 2 Market Complex'],
+            zoneCount: 1,
+            zoneId: data[1]?.id // Node 2
+          },
+          {
+            timestamp: new Date(now.getTime() - 80 * 60000).toISOString(), // 1h 20m ago
+            duration: 3.5,
+            aqiBefore: 167,
+            aqiAfter: 139, // Matches Node 1 current reading
+            affectedZones: ['Phase 1 Market'],
+            zoneCount: 1,
+            zoneId: data[0]?.id // Node 1
+          },
+          {
+            timestamp: new Date(now.getTime() - 105 * 60000).toISOString(), // 1h 45m ago
+            duration: 3.0,
+            aqiBefore: 158,
+            aqiAfter: 131, // Matches Node 4 current reading
+            affectedZones: ['Sanjay Vihar'],
+            zoneCount: 1,
+            zoneId: data[3]?.id // Node 4
+          },
+          {
+            timestamp: new Date(now.getTime() - 135 * 60000).toISOString(), // 2h 15m ago
+            duration: 3.1,
+            aqiBefore: 285,
+            aqiAfter: 238,
+            affectedZones: ['NH24 Highway Exit'],
+            zoneCount: 1,
+            zoneId: data[2]?.id
+          },
+          {
+            timestamp: new Date(now.getTime() - 160 * 60000).toISOString(), // 2h 40m ago
+            duration: 2.9,
+            aqiBefore: 223,
+            aqiAfter: 186,
+            affectedZones: ['Phase 2 Market Complex'],
+            zoneCount: 1,
+            zoneId: data[1]?.id
+          }
+        ];
+
+        setSprinklerHistory(mockHistory);
+
+        // Initialize zone last treated times
+        const initialZoneTimes: { [zoneId: string]: Date } = {};
+        mockHistory.forEach(entry => {
+          if (entry.zoneId && (!initialZoneTimes[entry.zoneId] || new Date(entry.timestamp) > initialZoneTimes[entry.zoneId])) {
+            initialZoneTimes[entry.zoneId] = new Date(entry.timestamp);
+          }
+        });
+        setZoneLastTreated(initialZoneTimes);
+
         console.log('✅ Strategic initialization complete!');
       } catch (error) {
         console.error('❌ Initialization error:', error);
@@ -85,31 +157,53 @@ const App: React.FC = () => {
     return Math.round(sum / validReadings.length);
   }, [locations]);
 
-  const comparisonDelta = useMemo(() => {
-    return colonyAverageAQI - officialStation.currentReading.aqi;
-  }, [colonyAverageAQI, officialStation]);
-
   const handleTriggerSprinkler = () => {
     if (sprinklerStatus.state === SprinklerState.ACTIVE) return;
 
+    // Select the zone with highest AQI that hasn't been treated recently
+    const COOLDOWN_MINUTES = 20;
+    const now = new Date();
+
+    const availableZones = locations
+      .filter(loc => loc.type === 'TEMP_NODE')
+      .filter(loc => {
+        const lastTreated = zoneLastTreated[loc.id];
+        if (!lastTreated) return true;
+        const minutesSince = (now.getTime() - lastTreated.getTime()) / 60000;
+        return minutesSince >= COOLDOWN_MINUTES;
+      })
+      .sort((a, b) => b.currentReading.aqi - a.currentReading.aqi); // Highest AQI first
+
+    if (availableZones.length === 0) {
+      console.log('⏳ All zones on cooldown.');
+      return;
+    }
+
+    const targetZone = availableZones[0];
+    const aqiBefore = targetZone.currentReading.aqi;
+
     // Dynamic Duration Algorithm: Scales with AQI (Pollution) and Inversely with Humidity
     const baseDuration = 3.0;
-    const aqiFactor = colonyAverageAQI / 150;
-    const humidityFactor = (100 - colonyAverageHumidity) / 100;
+    const aqiFactor = aqiBefore / 150;
+    const humidityFactor = (100 - (targetZone.currentReading.humidity || colonyAverageHumidity)) / 100;
     const calculatedDuration = Math.min(Math.max(baseDuration * aqiFactor * humidityFactor, 2), 10);
     const roundedDuration = Math.round(calculatedDuration * 10) / 10;
 
     setSprinklerStatus(prev => ({ ...prev, state: SprinklerState.ACTIVE }));
 
-    const aqiBefore = colonyAverageAQI;
+    console.log(`💧 Activating sprinkler for ${targetZone.name} (AQI: ${aqiBefore})`);
 
     setTimeout(() => {
       const aqiAfter = simulateSprinklerImpact(aqiBefore);
+
       const newEntry = {
         timestamp: new Date().toISOString(),
         duration: roundedDuration,
         aqiBefore,
-        aqiAfter
+        aqiAfter,
+        affectedZones: [targetZone.name],
+        zoneCount: 1,
+        zoneId: targetZone.id
       };
 
       setSprinklerHistory(prev => [newEntry, ...prev]);
@@ -119,33 +213,68 @@ const App: React.FC = () => {
         lastActivation: new Date().toISOString()
       }));
 
-      // Update locations to show reduction
+      // Update only the treated zone's AQI
       setLocations(prev => prev.map(loc => {
-        const newPM = loc.currentReading.pm25 * (aqiAfter / aqiBefore);
-        const { aqi, category } = calculateAQI(newPM);
-        return {
-          ...loc,
-          currentReading: { ...loc.currentReading, pm25: newPM, aqi, category }
-        };
+        if (loc.id === targetZone.id) {
+          const newPM = loc.currentReading.pm25 * (aqiAfter / aqiBefore);
+          const { aqi, category } = calculateAQI(newPM);
+          return {
+            ...loc,
+            currentReading: { ...loc.currentReading, pm25: newPM, aqi, category }
+          };
+        }
+        return loc;
       }));
+
+      // Update zone last treated timestamp
+      setZoneLastTreated(prev => ({
+        ...prev,
+        [targetZone.id]: new Date()
+      }));
+
+      console.log(`✅ ${targetZone.name} treated: ${aqiBefore} → ${aqiAfter} AQI`);
     }, 5000);
   };
 
-  // Automatic Trigger Logic: Dual-Zone Proactive Maintenance
+  // Automatic Trigger Logic: Forecast-Aware Proactive Maintenance
+  // Checks both current AQI readings AND 30-min forecast peak to decide when to activate
+  const forecastPeakAQI = useMemo(() => {
+    if (locations.length === 0) return 0;
+    let peak = 0;
+    locations.filter(l => l.type === 'TEMP_NODE').forEach(loc => {
+      if (loc.predictions) {
+        loc.predictions.forEach(p => {
+          if (p.aqi > peak) peak = p.aqi;
+        });
+      }
+    });
+    return peak;
+  }, [locations]);
+
   useEffect(() => {
-    if (!sprinklerStatus.autoMode || sprinklerStatus.state === SprinklerState.ACTIVE) return;
+    if (sprinklerStatus.state === SprinklerState.ACTIVE) return;
 
     const TARGET_AQI = 80;
     const MAINTENANCE_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
     const shouldTrigger = () => {
-      // 1. Critical Mitigation Zone
+      // 1. Critical Mitigation: current AQI is very high
       if (colonyAverageAQI >= 200) {
-        console.log('🚨 Critical Mitigation Triggered');
+        console.log('🚨 Critical Mitigation Triggered (current AQI)');
         return true;
       }
 
-      // 2. Proactive Maintenance Zone
+      // 2. Forecast-based Pre-emptive Trigger: forecast predicts high AQI
+      if (forecastPeakAQI >= 200) {
+        if (!sprinklerStatus.lastActivation) return true;
+        const lastTime = new Date(sprinklerStatus.lastActivation).getTime();
+        if (Date.now() - lastTime > MAINTENANCE_COOLDOWN_MS) {
+          console.log('🔮 Forecast Pre-emptive Trigger (predicted AQI:', forecastPeakAQI, ')');
+          return true;
+        }
+      }
+
+      // 3. Proactive Maintenance: current AQI above target
       if (colonyAverageAQI > TARGET_AQI) {
         if (!sprinklerStatus.lastActivation) return true;
 
@@ -164,7 +293,7 @@ const App: React.FC = () => {
     if (shouldTrigger()) {
       handleTriggerSprinkler();
     }
-  }, [colonyAverageAQI, sprinklerStatus.autoMode, sprinklerStatus.state, sprinklerStatus.lastActivation]);
+  }, [colonyAverageAQI, forecastPeakAQI, sprinklerStatus.state, sprinklerStatus.lastActivation]);
 
   const getAqiInfo = (category: AQICategory) => NAQI_BREAKPOINTS.find(b => b.category === category);
 
@@ -193,69 +322,35 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setShowComparison(!showComparison)}
-              className={`px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${showComparison ? 'bg-blue-900 text-white shadow-lg scale-105' : 'bg-white text-slate-500 border border-slate-200'}`}
-            >
-              Comparison View
-            </button>
-            <div className="h-10 w-px bg-slate-200 hidden md:block"></div>
-            <div className="flex items-center gap-6">
-              <div className="text-right">
-                <span className="text-[8px] font-black text-slate-400 uppercase block">Colony Average</span>
-                <span className="text-xl font-black text-slate-900 tracking-tighter">{colonyAverageAQI} AQI</span>
-              </div>
+          <div className="flex items-center gap-6">
+            <div className="text-right">
+              <span className="text-[8px] font-black text-slate-400 uppercase block">Colony Average</span>
+              <span className="text-xl font-black text-slate-900 tracking-tighter">{colonyAverageAQI} AQI</span>
             </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8 md:px-8 space-y-8">
-        {showComparison && (
-          <section className="animate-in fade-in slide-in-from-top-4 duration-500">
-            <div className="bg-blue-900 rounded-[2.5rem] p-8 text-white shadow-2xl overflow-hidden relative">
-              <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
-              <div className="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-8 items-center">
-                <div className="text-center md:text-left">
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60">Official Reference</span>
-                  <div className="text-4xl font-black tracking-tighter mt-1">{officialStation.currentReading.aqi} AQI</div>
-                  <p className="text-[10px] font-bold mt-2 opacity-80 uppercase tracking-widest">DPCC Patparganj Station</p>
-                </div>
-                <div className="flex flex-col items-center">
-                  <div className={`text-sm font-black uppercase tracking-widest px-4 py-2 rounded-full ${comparisonDelta > 0 ? 'bg-red-500/20 text-red-300' : 'bg-green-500/20 text-green-300'}`}>
-                    {Math.abs(comparisonDelta).toFixed(1)} AQI Variation
-                  </div>
-                  <div className="h-px w-32 bg-white/20 my-4"></div>
-                  <p className="text-[10px] font-medium opacity-60 text-center max-w-[200px]">Hyperlocal sensors detect localized hotspots missed by official grids.</p>
-                </div>
-                <div className="text-center md:text-right">
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60">TEMP Network</span>
-                  <div className="text-4xl font-black tracking-tighter mt-1">{colonyAverageAQI} AQI</div>
-                  <p className="text-[10px] font-bold mt-2 opacity-80 uppercase tracking-widest">Hyperlocal Colony Average</p>
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
-
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Left Column: Map and Node Grid */}
+          {/* Left Column: Node Grid, Sprinkler Control, and Map */}
           <div className="lg:col-span-7 space-y-8">
-            <AQIMap locations={locations} selectedId={selectedId} onSelectLocation={setSelectedId} clusters={{}} />
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {locations.filter(l => l.type === 'TEMP_NODE').map(loc => {
                 const info = getAqiInfo(loc.currentReading.category);
+                const lastTreated = zoneLastTreated[loc.id];
+                const minutesSince = lastTreated ? (new Date().getTime() - lastTreated.getTime()) / 60000 : 999;
+                const isRecentlyTreated = minutesSince < 60;
                 return (
                   <button
                     key={loc.id}
                     onClick={() => setSelectedId(loc.id)}
-                    className={`p-5 rounded-[2rem] text-left border-4 transition-all ${selectedId === loc.id ? 'bg-white border-blue-900 shadow-2xl -translate-y-1' : 'bg-white border-transparent hover:border-slate-100 shadow-sm'}`}
+                    className={`p-5 rounded-[2rem] text-left border-4 transition-all ${selectedId === loc.id ? 'bg-white border-blue-900 shadow-2xl -translate-y-1' : isRecentlyTreated ? 'bg-white border-green-400 shadow-md hover:shadow-lg' : 'bg-white border-transparent hover:border-slate-100 shadow-sm'}`}
                   >
                     <div className={`w-8 h-1.5 rounded-full mb-4 ${info?.color}`} />
                     <h4 className="text-[9px] font-black text-slate-500 line-clamp-1 mb-1 uppercase tracking-tight">{loc.name}</h4>
-                    <div className="flex items-baseline gap-1">
+                    <div className="flex items-baseline gap-1 mb-2">
                       <span className="text-2xl font-black text-slate-900">{loc.currentReading.aqi}</span>
                       <span className="text-[10px] font-bold text-slate-400">AQI</span>
                     </div>
@@ -267,10 +362,12 @@ const App: React.FC = () => {
             <SprinklerControl
               status={sprinklerStatus}
               history={sprinklerHistory}
+              forecastPeakAQI={forecastPeakAQI}
               onTrigger={handleTriggerSprinkler}
-              onToggleAuto={(val) => setSprinklerStatus(p => ({ ...p, autoMode: val }))}
               onSetThreshold={(val) => setSprinklerStatus(p => ({ ...p, threshold: val }))}
             />
+
+            <AQIMap locations={locations} selectedId={selectedId} onSelectLocation={setSelectedId} clusters={{}} />
           </div>
 
           {/* Right Column: Node Details and Predictions */}
@@ -362,10 +459,7 @@ const App: React.FC = () => {
                       </div>
                     )}
 
-                    <div className="p-5 rounded-3xl bg-blue-50 border border-blue-100 text-blue-900 shadow-inner">
-                      <span className="text-[10px] font-black uppercase tracking-widest block mb-2">Category Health Insight</span>
-                      <p className="text-[11px] font-bold leading-relaxed">{getAqiInfo(selectedLocation.currentReading.category)?.description}</p>
-                    </div>
+
                   </div>
                 </div>
 

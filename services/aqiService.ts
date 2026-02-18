@@ -165,18 +165,16 @@ export const generateMockPredictions = (currentPM: number): PredictionReading[] 
   const predictions: PredictionReading[] = [];
   const now = new Date();
 
-  // Simple periodic variation for 24 hours
-  for (let i = 1; i <= 24; i++) {
-    const time = new Date(now.getTime() + i * 3600000);
-    const hour = time.getHours();
+  // Generate 6 predictions at 5-minute intervals (30 minutes total)
+  for (let i = 1; i <= 6; i++) {
+    const time = new Date(now.getTime() + i * 300000); // 5 minutes in milliseconds
 
-    // Diurnal pattern: peaks around 8am and 8pm (traffic/smoke)
-    const diurnalFactor = Math.sin((hour - 8) * Math.PI / 12) * 20 + Math.sin((hour - 20) * Math.PI / 12) * 15;
-    const variation = (Math.random() - 0.5) * 10;
-    const pm25 = Math.max(10, currentPM + diurnalFactor + variation);
+    // Short-term variation pattern (within 30 minutes)
+    const variation = (Math.random() - 0.5) * 5; // Smaller variation for short timeframe
+    const pm25 = Math.max(10, currentPM + variation);
 
     const { aqi, category } = calculateAQI(pm25);
-    const confidenceRange: [number, number] = [pm25 * 0.8, pm25 * 1.2];
+    const confidenceRange: [number, number] = [pm25 * 0.9, pm25 * 1.1]; // Tighter confidence for short-term
 
     predictions.push({
       timestamp: time.toISOString(),
