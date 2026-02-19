@@ -13,13 +13,13 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({ predictions }) => {
     };
 
     return (
-        <div className="bg-white rounded-3xl p-6 border border-slate-200">
+        <div className="bg-white rounded-lg p-6 border border-slate-200">
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h3 className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-1">Forecast Module</h3>
                     <h2 className="text-xl font-black text-slate-900">30-Minute Forecast</h2>
                 </div>
-                <div className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-[10px] font-black uppercase tracking-widest">
+                <div className="px-3 py-1 bg-blue-50 text-blue-700 rounded text-[10px] font-black uppercase tracking-widest">
                     ±20% Confidence
                 </div>
             </div>
@@ -50,7 +50,7 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({ predictions }) => {
                 </div>
 
                 {/* Hourly Table */}
-                <div className="mt-4 overflow-hidden rounded-2xl border border-slate-100">
+                <div className="mt-4 overflow-hidden rounded-lg border border-slate-100">
                     <table className="w-full text-left">
                         <thead className="bg-slate-50 border-b border-slate-100">
                             <tr>
@@ -69,7 +69,7 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({ predictions }) => {
                                         {p.aqi}
                                     </td>
                                     <td className="px-4 py-3">
-                                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-black text-white ${getAqiColor(p.aqi)}`}>
+                                        <span className={`text-[10px] px-2 py-0.5 rounded font-black text-white ${getAqiColor(p.aqi)}`}>
                                             {p.category}
                                         </span>
                                     </td>

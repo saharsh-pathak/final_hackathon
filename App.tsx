@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { LocationData, AQICategory, SprinklerStatus, SprinklerState } from './types';
 import { TEMP_AQI_LOCATIONS, NAQI_BREAKPOINTS, OFFICIAL_STATION_DATA, MAP_CENTER } from './constants';
-import { calculateAQI, generateMockHistory, fetchRealAQI, simulateNodeData, generateMockPredictions, simulateSprinklerImpact } from './services/aqiService';
+import { calculateAQI, generateMockHistory, simulateNodeData, generateMockPredictions, simulateSprinklerImpact, subscribeToNode1, Node1FirebaseData } from './services/aqiService';
 import AQIMap from './components/AQIMap';
 import PredictionModule from './components/PredictionModule';
 import SprinklerControl from './components/SprinklerControl';
@@ -19,6 +19,63 @@ const App: React.FC = () => {
   });
   const [sprinklerHistory, setSprinklerHistory] = useState<any[]>([]);
   const [zoneLastTreated, setZoneLastTreated] = useState<{ [zoneId: string]: Date }>({});
+  const [node1LiveData, setNode1LiveData] = useState<Node1FirebaseData | null>(null);
+  const [node1Connected, setNode1Connected] = useState(false);
+  const [historyModal, setHistoryModal] = useState<boolean>(false);
+  // Genuine readings from ESP32 via Firebase, capped at 10
+  const [node1History, setNode1History] = useState<Array<{
+    timestamp: string; aqi: number; pm25: number; pm10: number;
+    humidity: number; temperature: number; relayStatus: string;
+  }>>([]);
+
+  // Firebase live subscription for Node-1
+  useEffect(() => {
+    console.log('🔥 Subscribing to Firebase Node1...');
+    const unsubscribe = subscribeToNode1((data) => {
+      console.log('📡 Firebase Node1 update:', data);
+      setNode1LiveData(data);
+      setNode1Connected(true);
+
+      // Append genuine ESP32 reading to history (capped at 10)
+      const newReading = {
+        timestamp: new Date(data.timestamp * 1000).toISOString(),
+        aqi: data.aqi,
+        pm25: data.pm25,
+        pm10: parseFloat((data.pm25 * 1.6).toFixed(1)),
+        humidity: data.humidity,
+        temperature: data.temperature,
+        relayStatus: data.relayStatus
+      };
+      setNode1History(prev => {
+        const updated = [newReading, ...prev];
+        return updated.slice(0, 10); // max 10 entries
+      });
+
+      // Update Node-1 in locations state with live ESP32 data
+      setLocations(prev => prev.map(loc => {
+        if (loc.id === 'node-1') {
+          const pm25 = data.pm25 || 0;
+          const { aqi, category } = data.aqi > 0
+            ? { aqi: data.aqi, category: calculateAQI(pm25).category }
+            : calculateAQI(pm25);
+          return {
+            ...loc,
+            currentReading: {
+              ...loc.currentReading,
+              aqi,
+              pm25,
+              pm10: pm25 * 1.6,
+              humidity: data.humidity,
+              temperature: data.temperature,
+              timestamp: new Date(data.timestamp * 1000).toISOString()
+            }
+          };
+        }
+        return loc;
+      }));
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     const initData = async () => {
@@ -26,8 +83,9 @@ const App: React.FC = () => {
       setLoading(true);
 
       try {
-        // Fetch real data for Node 1 (Phase 1 Market)
-        const node1Base = await fetchRealAQI(TEMP_AQI_LOCATIONS[0].coordinates[0], TEMP_AQI_LOCATIONS[0].coordinates[1]);
+        // Node-1 starts with a sensible fallback; Firebase subscription will overwrite with live data
+        // as soon as the onValue listener fires (typically within ~500ms)
+        const node1Base = { pm25: 85, pm10: 136, ...calculateAQI(85) };
 
         // Initialize Official Station (Patparganj) - Simulate based on real city average if API available
         // Here we just use the constant but could fetch real data too
@@ -342,18 +400,35 @@ const App: React.FC = () => {
                 const lastTreated = zoneLastTreated[loc.id];
                 const minutesSince = lastTreated ? (new Date().getTime() - lastTreated.getTime()) / 60000 : 999;
                 const isRecentlyTreated = minutesSince < 60;
+                const isLiveNode = loc.id === 'node-1' && node1Connected;
+                const isNode1 = loc.id === 'node-1';
                 return (
                   <button
                     key={loc.id}
-                    onClick={() => setSelectedId(loc.id)}
-                    className={`p-5 rounded-[2rem] text-left border-4 transition-all ${selectedId === loc.id ? 'bg-white border-blue-900 shadow-2xl -translate-y-1' : isRecentlyTreated ? 'bg-white border-green-400 shadow-md hover:shadow-lg' : 'bg-white border-transparent hover:border-slate-100 shadow-sm'}`}
+                    onClick={() => {
+                      setSelectedId(loc.id);
+                      if (isNode1) setHistoryModal(true);
+                    }}
+                    className={`p-5 rounded-lg text-left border-4 transition-all relative ${selectedId === loc.id ? 'bg-white border-blue-900 shadow-2xl -translate-y-1' : isRecentlyTreated ? 'bg-white border-green-400 shadow-md hover:shadow-lg' : 'bg-white border-transparent hover:border-slate-100 shadow-sm'}`}
                   >
+                    {isLiveNode && (
+                      <div className="absolute top-2 right-2 flex items-center gap-1">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                        </span>
+                        <span className="text-[8px] font-black text-green-600 uppercase">LIVE</span>
+                      </div>
+                    )}
                     <div className={`w-8 h-1.5 rounded-full mb-4 ${info?.color}`} />
                     <h4 className="text-[9px] font-black text-slate-500 line-clamp-1 mb-1 uppercase tracking-tight">{loc.name}</h4>
                     <div className="flex items-baseline gap-1 mb-2">
                       <span className="text-2xl font-black text-slate-900">{loc.currentReading.aqi}</span>
                       <span className="text-[10px] font-bold text-slate-400">AQI</span>
                     </div>
+                    {isNode1 && (
+                      <span className="text-[8px] font-black text-blue-500 uppercase tracking-widest">View History →</span>
+                    )}
                   </button>
                 );
               })}
@@ -374,7 +449,7 @@ const App: React.FC = () => {
           <div className="lg:col-span-5 space-y-8">
             {selectedLocation ? (
               <>
-                <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-200 overflow-hidden">
+                <div className="bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden">
                   <div className={`h-3 ${getAqiInfo(selectedLocation.currentReading.category)?.color}`} />
                   <div className="p-8">
                     <div className="flex justify-between items-start mb-8">
@@ -385,14 +460,14 @@ const App: React.FC = () => {
                         <h2 className="text-3xl font-black text-slate-900 leading-none">{selectedLocation.name}</h2>
                         {selectedLocation.isSimulated && <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2 block italic">Virtualized Simulation Node</span>}
                       </div>
-                      <div className={`px-6 py-4 rounded-3xl text-center ${getAqiInfo(selectedLocation.currentReading.category)?.color} text-white shadow-2xl`}>
+                      <div className={`px-6 py-4 rounded-lg text-center ${getAqiInfo(selectedLocation.currentReading.category)?.color} text-white shadow-2xl`}>
                         <div className="text-4xl font-black tracking-tighter">{selectedLocation.currentReading.aqi}</div>
                         <div className="text-[9px] font-black uppercase tracking-widest opacity-80 mt-1">AQI</div>
                       </div>
                     </div>
 
                     {selectedLocation.type === 'OFFICIAL' ? (
-                      <div className="bg-slate-50 rounded-3xl p-6 border border-slate-100 mb-8">
+                      <div className="bg-slate-50 rounded-lg p-6 border border-slate-100 mb-8">
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Official Station Metadata</span>
                         <div className="grid grid-cols-2 gap-4">
                           <div>
@@ -415,19 +490,39 @@ const App: React.FC = () => {
                       </div>
                     ) : (
                       <div className="grid grid-cols-3 gap-3 mb-8">
-                        <div className="p-5 rounded-3xl bg-slate-50 border border-slate-100">
+                        <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
                           <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">PM2.5</span>
                           <span className="text-xl font-black text-slate-800">{selectedLocation.currentReading.pm25.toFixed(2)}</span>
                         </div>
-                        <div className="p-5 rounded-3xl bg-slate-50 border border-slate-100">
+                        <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
                           <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">PM10</span>
                           <span className="text-xl font-black text-slate-800">{selectedLocation.currentReading.pm10.toFixed(2)}</span>
                         </div>
-                        <div className="p-5 rounded-3xl bg-slate-50 border border-slate-100">
+                        <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
                           <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Humidity</span>
                           <span className="text-xl font-black text-slate-800">{selectedLocation.currentReading.humidity?.toFixed(1) || '--'}%</span>
                         </div>
-                        <div className="p-5 rounded-3xl bg-slate-50 border border-slate-100 col-span-3">
+                        {selectedLocation.id === 'node-1' && node1LiveData && (
+                          <>
+                            <div className="p-5 rounded-lg bg-blue-50 border border-blue-100">
+                              <span className="text-[9px] font-black text-blue-400 uppercase block mb-1">Temperature</span>
+                              <span className="text-xl font-black text-blue-800">{node1LiveData.temperature.toFixed(1)}°C</span>
+                            </div>
+                            <div className={`p-5 rounded-lg col-span-2 border ${node1LiveData.relayStatus === 'ON'
+                              ? 'bg-green-50 border-green-200'
+                              : 'bg-slate-50 border-slate-100'
+                              }`}>
+                              <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Relay / Sprinkler</span>
+                              <div className="flex items-center gap-2">
+                                <span className={`w-2.5 h-2.5 rounded-full ${node1LiveData.relayStatus === 'ON' ? 'bg-green-500 animate-pulse' : 'bg-slate-300'
+                                  }`} />
+                                <span className={`text-xl font-black ${node1LiveData.relayStatus === 'ON' ? 'text-green-700' : 'text-slate-500'
+                                  }`}>{node1LiveData.relayStatus}</span>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                        <div className="p-5 rounded-lg bg-slate-50 border border-slate-100 col-span-3">
                           <div className="flex justify-between items-center">
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
@@ -453,7 +548,7 @@ const App: React.FC = () => {
                                 </span>
                               </div>
                             </div>
-                            <div className="px-3 py-1 bg-green-100 text-green-700 rounded-lg text-[8px] font-black uppercase">Hyperlocal Zone</div>
+                            <div className="px-3 py-1 bg-green-100 text-green-700 rounded text-[8px] font-black uppercase">Hyperlocal Zone</div>
                           </div>
                         </div>
                       </div>
@@ -466,13 +561,110 @@ const App: React.FC = () => {
                 <PredictionModule predictions={selectedLocation.predictions} />
               </>
             ) : (
-              <div className="h-[500px] flex items-center justify-center p-12 bg-white rounded-[3rem] border-4 border-dashed border-slate-100 text-slate-300 font-black text-center text-xl uppercase tracking-tighter">
+              <div className="h-[500px] flex items-center justify-center p-12 bg-white rounded-lg border-4 border-dashed border-slate-100 text-slate-300 font-black text-center text-xl uppercase tracking-tighter">
                 Click a marker on the map <br /> to reveal analytics.
               </div>
             )}
           </div>
         </div>
       </main>
+
+      {/* ── Node-1 ESP32 History Modal (genuine Firebase readings only) ── */}
+      {historyModal && (() => {
+        const node1Loc = locations.find(l => l.id === 'node-1');
+        const modalInfo = node1Loc ? getAqiInfo(node1Loc.currentReading.category) : undefined;
+        return (
+          <div
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+            style={{ background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(6px)' }}
+            onClick={() => setHistoryModal(false)}
+          >
+            <div
+              className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Colour bar */}
+              <div className={`h-2 w-full ${modalInfo?.color ?? 'bg-blue-900'}`} />
+
+              {/* Header */}
+              <div className="flex items-center justify-between px-8 py-6 border-b border-slate-100">
+                <div>
+                  <span className="text-[9px] font-black text-blue-600 uppercase tracking-widest block mb-1">Live ESP32 Readings — Node 1</span>
+                  <h2 className="text-xl font-black text-slate-900 tracking-tight">{node1Loc?.name ?? 'Sensor Node 1'}</h2>
+                </div>
+                <div className="flex items-center gap-4">
+                  {node1LiveData && (
+                    <div className={`px-4 py-2 rounded-lg text-white text-sm font-black ${modalInfo?.color ?? 'bg-blue-900'}`}>
+                      {node1LiveData.aqi} AQI
+                    </div>
+                  )}
+                  <button
+                    onClick={() => setHistoryModal(false)}
+                    className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 font-black text-lg transition-colors"
+                    aria-label="Close"
+                  >×</button>
+                </div>
+              </div>
+
+              {/* Table */}
+              <div className="p-8 overflow-y-auto" style={{ maxHeight: '65vh' }}>
+                {node1History.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-3">
+                    <div className="w-8 h-8 border-4 border-blue-900 border-t-transparent rounded-full animate-spin" />
+                    <p className="text-slate-400 font-black uppercase text-xs">Waiting for ESP32 data…</p>
+                  </div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b-2 border-slate-100">
+                        {['Time', 'AQI', 'PM2.5', 'PM10', 'Humidity', 'Temp', 'Relay'].map(h => (
+                          <th key={h} className="text-[8px] font-black text-slate-400 uppercase tracking-widest pb-3 text-left pr-3">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {node1History.map((r, i) => {
+                        const { aqi, category } = calculateAQI(r.pm25);
+                        const rInfo = getAqiInfo(category);
+                        const ts = new Date(r.timestamp);
+                        return (
+                          <tr key={i} className={`border-b border-slate-50 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
+                            <td className="py-3 pr-3">
+                              <span className="font-black text-slate-800 block">{ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                              <span className="text-[9px] text-slate-400">{ts.toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
+                            </td>
+                            <td className="py-3 pr-3">
+                              <span className={`px-2 py-0.5 rounded text-xs font-black text-white ${rInfo?.color ?? 'bg-slate-400'}`}>{r.aqi}</span>
+                            </td>
+                            <td className="py-3 pr-3 font-black text-slate-700">{r.pm25.toFixed(1)}</td>
+                            <td className="py-3 pr-3 font-black text-slate-700">{r.pm10.toFixed(1)}</td>
+                            <td className="py-3 pr-3 font-black text-slate-700">{r.humidity.toFixed(0)}%</td>
+                            <td className="py-3 pr-3 font-black text-slate-700">{r.temperature.toFixed(1)}°C</td>
+                            <td className="py-3">
+                              <span className={`px-2 py-0.5 rounded text-[8px] font-black ${r.relayStatus === 'ON' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
+                                }`}>{r.relayStatus}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              <div className="px-8 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                  {node1History.length === 0 ? 'No readings yet' : `${node1History.length} genuine reading${node1History.length > 1 ? 's' : ''} · max 10`}
+                </span>
+                <button
+                  onClick={() => setHistoryModal(false)}
+                  className="px-5 py-2 bg-blue-900 text-white text-xs font-black rounded-lg hover:bg-blue-800 transition-colors uppercase tracking-widest"
+                >Close</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

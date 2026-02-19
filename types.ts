@@ -59,6 +59,7 @@ export interface Reading {
   aqi: number;
   category: AQICategory;
   humidity?: number;
+  temperature?: number;
 }
 
 export interface VerificationData {

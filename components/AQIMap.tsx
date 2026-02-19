@@ -15,6 +15,7 @@ const AQIMap: React.FC<AQIMapProps> = ({ locations, selectedId, onSelectLocation
   const mapRef = useRef<any>(null);
   const markersRef = useRef<{ [key: string]: any }>({});
   const layerRef = useRef<{ [key: string]: any }>({});
+  const [mapReady, setMapReady] = useState(false);
   const [layers, setLayers] = useState({
     official: true,
     nodes: true,
@@ -66,6 +67,8 @@ const AQIMap: React.FC<AQIMapProps> = ({ locations, selectedId, onSelectLocation
       dashArray: '5, 10'
     }).addTo(map);
     layerRef.current['boundary'] = boundary;
+
+    setMapReady(true);
 
     return () => {
       if (mapRef.current) {
@@ -180,15 +183,15 @@ const AQIMap: React.FC<AQIMapProps> = ({ locations, selectedId, onSelectLocation
       });
     }
 
-  }, [locations, selectedId, layers, onSelectLocation]);
+  }, [locations, selectedId, layers, onSelectLocation, mapReady]);
 
   return (
-    <div className="relative w-full h-[550px] rounded-[2.5rem] overflow-hidden shadow-2xl border-4 border-white">
+    <div className="relative w-full h-[550px] rounded-lg overflow-hidden shadow-2xl border-4 border-white">
       <div ref={mapContainerRef} className="w-full h-full bg-slate-50" />
 
       {/* Legend & UI Overlays */}
       <div className="absolute top-6 left-6 z-[1000] flex flex-col gap-3">
-        <div className="bg-white/90 backdrop-blur-md p-5 rounded-3xl shadow-xl border border-slate-200">
+        <div className="bg-white/90 backdrop-blur-md p-5 rounded-lg shadow-xl border border-slate-200">
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-3">
               <div className="w-6 h-6 bg-blue-900 rounded-lg flex items-center justify-center">
@@ -213,12 +216,12 @@ const AQIMap: React.FC<AQIMapProps> = ({ locations, selectedId, onSelectLocation
 
         {/* Dynamic Controls */}
         <div className="grid grid-cols-2 gap-2">
-          <button onClick={() => setLayers(l => ({ ...l, official: !l.official }))} className={`px-3 py-2 rounded-2xl text-[8px] font-black uppercase tracking-widest transition-all ${layers.official ? 'bg-blue-900 text-white shadow-lg' : 'bg-white/80 text-slate-400'}`}>Official</button>
-          <button onClick={() => setLayers(l => ({ ...l, nodes: !l.nodes }))} className={`px-3 py-2 rounded-2xl text-[8px] font-black uppercase tracking-widest transition-all ${layers.nodes ? 'bg-blue-900 text-white shadow-lg' : 'bg-white/80 text-slate-400'}`}>Hyperlocal</button>
+          <button onClick={() => setLayers(l => ({ ...l, official: !l.official }))} className={`px-3 py-2 rounded text-[8px] font-black uppercase tracking-widest transition-all ${layers.official ? 'bg-blue-900 text-white shadow-lg' : 'bg-white/80 text-slate-400'}`}>Official</button>
+          <button onClick={() => setLayers(l => ({ ...l, nodes: !l.nodes }))} className={`px-3 py-2 rounded text-[8px] font-black uppercase tracking-widest transition-all ${layers.nodes ? 'bg-blue-900 text-white shadow-lg' : 'bg-white/80 text-slate-400'}`}>Hyperlocal</button>
         </div>
       </div>
 
-      <div className="absolute bottom-6 left-6 z-[1000] bg-white/90 backdrop-blur-md px-4 py-2 rounded-2xl shadow-lg border border-slate-200">
+      <div className="absolute bottom-6 left-6 z-[1000] bg-white/90 backdrop-blur-md px-4 py-2 rounded-lg shadow-lg border border-slate-200">
         <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Network Coverage: <span className="text-blue-900">Mayur Vihar Colony Zone 1</span></span>
       </div>
     </div>

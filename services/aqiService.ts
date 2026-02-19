@@ -1,6 +1,35 @@
 
 import { AQICategory, Reading, VerificationData, LocationData, ClusterData, ClusterConfidence, ConfidenceTier, PredictionReading } from '../types';
 import { NAQI_BREAKPOINTS } from '../constants';
+import { db } from './firebaseConfig';
+import { ref, onValue, off } from 'firebase/database';
+
+export interface Node1FirebaseData {
+  aqi: number;
+  pm25: number;
+  humidity: number;
+  temperature: number;
+  relayStatus: string;
+  timestamp: number;
+}
+
+/**
+ * Subscribe to live ESP32 sensor data from Firebase Realtime Database (nodes/Node1).
+ * Returns an unsubscribe function to clean up the listener.
+ */
+export const subscribeToNode1 = (
+  callback: (data: Node1FirebaseData) => void
+): (() => void) => {
+  const nodeRef = ref(db, 'nodes/Node1');
+  onValue(nodeRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      callback(data as Node1FirebaseData);
+    }
+  });
+  return () => off(nodeRef);
+};
+
 
 export const calculateAQI = (pm25: number): { aqi: number, category: AQICategory } => {
   const bp = NAQI_BREAKPOINTS.find(b => pm25 >= b.minPM25 && pm25 <= b.maxPM25) || NAQI_BREAKPOINTS[NAQI_BREAKPOINTS.length - 1];

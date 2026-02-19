@@ -13,7 +13,7 @@ interface SprinklerControlProps {
 const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, forecastPeakAQI, onTrigger, onSetThreshold }) => {
     const [showFullHistory, setShowFullHistory] = useState(false);
     return (
-        <div className="bg-white rounded-3xl p-6 border border-slate-200">
+        <div className="bg-white rounded-lg p-6 border border-slate-200">
             <div className="mb-8">
                 <h3 className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-1">Intervention Manager</h3>
                 <h2 className="text-xl font-black text-slate-900">Sprinkler Control</h2>
@@ -22,7 +22,7 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
             <div className="mb-8">
                 <div className="space-y-4">
                     {/* Static Automatic Mode indicator — always active, no toggle */}
-                    <div className="flex items-center justify-between p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                    <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-100">
                         <div>
                             <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-0.5">Automatic Mode</span>
                             <span className="text-xs font-bold text-blue-900">
@@ -30,7 +30,7 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
                             </span>
                         </div>
                         <div className="flex items-center gap-2">
-                            <span className={`w-2.5 h-2.5 rounded-full ${status.state === SprinklerState.ACTIVE ? 'bg-green-500 animate-pulse' : 'bg-blue-500'}`} />
+                            <span className={`w-2.5 h-2.5 rounded-sm ${status.state === SprinklerState.ACTIVE ? 'bg-green-500 animate-pulse' : 'bg-blue-500'}`} />
                             <span className="text-[10px] font-black text-blue-700 uppercase tracking-widest">
                                 {status.state === SprinklerState.ACTIVE ? 'Active' : 'Standby'}
                             </span>
@@ -43,7 +43,7 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
 
             <div className="mt-8">
                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Activation History Log</h3>
-                <div className="overflow-hidden rounded-2xl border border-slate-100">
+                <div className="overflow-hidden rounded-lg border border-slate-100">
                     <table className="w-full text-left">
                         <thead className="bg-slate-50 border-b border-slate-100">
                             <tr className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
@@ -61,7 +61,7 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
                                     <td className="px-4 py-3">{h.duration} min</td>
                                     <td className="px-4 py-3">
                                         <div className="flex items-center gap-1.5">
-                                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-lg text-[9px] font-black">
+                                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-[9px] font-black">
                                                 {h.zoneCount || 'All'} Zone{(h.zoneCount || 1) !== 1 ? 's' : ''}
                                             </span>
                                             {h.affectedZones && h.affectedZones.length > 0 && (
@@ -89,7 +89,7 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
                 {history.length > 3 && (
                     <button
                         onClick={() => setShowFullHistory(true)}
-                        className="mt-4 w-full py-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-2xl text-xs font-black uppercase tracking-widest transition-all"
+                        className="mt-4 w-full py-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-black uppercase tracking-widest transition-all"
                     >
                         Show More ({history.length} total entries)
                     </button>
@@ -102,7 +102,7 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
                     onClick={() => setShowFullHistory(false)}
                 >
                     <div
-                        className="bg-white rounded-3xl w-full max-w-6xl max-h-[90vh] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200"
+                        className="bg-white rounded-lg w-full max-w-6xl max-h-[90vh] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200"
                         onClick={(e) => e.stopPropagation()}
                     >
                         <div className="sticky top-0 bg-gradient-to-r from-blue-900 to-blue-700 p-6 text-white flex justify-between items-center">
@@ -112,7 +112,7 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
                             </div>
                             <button
                                 onClick={() => setShowFullHistory(false)}
-                                className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-colors"
+                                className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-lg flex items-center justify-center transition-colors"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                     <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -139,7 +139,7 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
                                             <td className="px-4 py-3">{h.duration} min</td>
                                             <td className="px-4 py-3">
                                                 <div className="flex items-center gap-1.5">
-                                                    <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-lg text-[9px] font-black">
+                                                    <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-[9px] font-black">
                                                         {h.zoneCount || 'All'} Zone{(h.zoneCount || 1) !== 1 ? 's' : ''}
                                                     </span>
                                                     {h.affectedZones && h.affectedZones.length > 0 && (
