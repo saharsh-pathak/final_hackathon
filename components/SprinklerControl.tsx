@@ -16,6 +16,11 @@ interface SprinklerControlProps {
 const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, forecastPeakAQI, selectedId, nodeName, onTrigger, onStop, onToggleMode, onSetThreshold }) => {
     const [showFullHistory, setShowFullHistory] = useState(false);
 
+    // Filter history based on selected node
+    const filteredHistory = selectedId
+        ? history.filter(h => h.zoneId === selectedId)
+        : history;
+
     // Default to Auto if not set or no selection, but if selected, use specific mode
     const isAuto = selectedId ? (status.autoMode[selectedId] ?? true) : true;
 
@@ -115,7 +120,7 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                            {history.length > 0 ? history.slice(0, 3).map((h, i) => (
+                            {filteredHistory.length > 0 ? filteredHistory.slice(0, 3).map((h, i) => (
                                 <tr key={i} className="text-[10px] font-bold text-slate-600 hover:bg-slate-50 transition-colors">
                                     <td className="px-4 py-3">{new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</td>
                                     <td className="px-4 py-3">{h.duration} min</td>
@@ -146,7 +151,7 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
                         </tbody>
                     </table>
                 </div>
-                {history.length > 3 && (
+                {filteredHistory.length > 3 && (
                     <button
                         onClick={() => setShowFullHistory(true)}
                         className="w-full py-3 bg-slate-50 hover:bg-slate-100 text-blue-600 font-black text-[10px] uppercase tracking-widest transition-colors border-t border-slate-100"
@@ -167,8 +172,8 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
                     >
                         <div className="sticky top-0 bg-gradient-to-r from-blue-900 to-blue-700 p-6 text-white flex justify-between items-center">
                             <div>
-                                <h2 className="text-2xl font-black">Full Activation History</h2>
-                                <p className="text-xs font-medium opacity-80 mt-1">Past 24 Hours • {history.length} Total Activations</p>
+                                <h2 className="text-2xl font-black">Full Activation History {nodeName ? `— ${nodeName}` : ''}</h2>
+                                <p className="text-xs font-medium opacity-80 mt-1">Past 24 Hours • {filteredHistory.length} Total Activations</p>
                             </div>
                             <button
                                 onClick={() => setShowFullHistory(false)}
@@ -193,7 +198,7 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-50">
-                                    {history.map((h, i) => (
+                                    {filteredHistory.map((h, i) => (
                                         <tr key={i} className="text-[10px] font-bold text-slate-600 hover:bg-slate-50 transition-colors">
                                             <td className="px-4 py-3">{new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</td>
                                             <td className="px-4 py-3">{h.duration} min</td>
