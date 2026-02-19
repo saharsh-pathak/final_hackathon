@@ -15,7 +15,7 @@ const App: React.FC = () => {
   const [sprinklerStatus, setSprinklerStatus] = useState<SprinklerStatus>({
     state: SprinklerState.INACTIVE,
     threshold: 80, // Target AQI
-    autoMode: true, // Always on — automatic mode is the only mode
+    autoMode: {}, // Per-node auto mode map
     activeNodes: {}
   });
   const [sprinklerHistory, setSprinklerHistory] = useState<any[]>([]);
@@ -245,28 +245,12 @@ const App: React.FC = () => {
     });
   };
 
-  const handleToggleMode = (isAuto: boolean) => {
-    // Independent toggling? Or global mode?
-    // User said "Manual sprinkler control will be independent...".
-    // But toggle is usually global mode switch.
-    // If switching to Auto, maybe keep manual active? Or stop?
-    // User said: "SPRINKLER STSTUS SHOULD UPDATE FROM "Standby" TO LIVE whenever... be it manually or in Automatic mode."
-    // I'll keep mode toggle global for now, but allow manual trigger even in auto?
-    // Or just switch mode.
-    // If Auto Mode is ON, maybe manual buttons are hidden?
-    // "Manual Mode allows use to turn on..." -> Implies Manual Mode enables manual buttons.
-    // If switching to Auto, ideally we stop manual?
-    // "THE MANUAL SPRINKLER CONTROL WILL BE INDEPENDENT... AND WILL NOT BE AFFECTED BY ONE-ANOTHER".
-    // This refers to nodes.
-    // I'll just set the flag.
-    if (isAuto && !sprinklerStatus.autoMode) {
-      // Switching TO Auto.
-      // Should we stop all manual active sprinklers?
-      // "WILL BE ABLE TO RUN SIMULTANEOUSLY".
-      // Maybe manual overrides are fine.
-      // I'll leave them running to be safe/flexible.
-    }
-    setSprinklerStatus(p => ({ ...p, autoMode: isAuto }));
+  const handleToggleMode = (targetId: string, isAuto: boolean) => {
+    // Independent toggling per node
+    setSprinklerStatus(p => ({
+      ...p,
+      autoMode: { ...p.autoMode, [targetId]: isAuto }
+    }));
   };
 
   const handleTriggerSprinkler = (manualTargetId?: string) => {
@@ -336,11 +320,9 @@ const App: React.FC = () => {
     }
 
     // --- AUTOMATIC MODE LOGIC (Existing) ---
-    if (sprinklerStatus.state === SprinklerState.ACTIVE) return; // Global auto check? Or per node?
-    // Auto mimics existing single-target logic for now, or adapt to multiple?
-    // User didn't explicitly ask to change Auto logic to multi-target, just manual.
-    // I'll keep Auto as single-stream for simplicity unless required.
-    // "THE MANUAL SPRINKLER CONTROL WILL BE INDEPENDENT...".
+    // --- AUTOMATIC MODE LOGIC (Existing) ---
+    // Removed global ACTIVE check to allow simultaneous independent triggers
+    // if (sprinklerStatus.state === SprinklerState.ACTIVE) return;
 
     // Select the zone with highest AQI...
     const COOLDOWN_MINUTES = 20;
@@ -349,6 +331,14 @@ const App: React.FC = () => {
     const availableZones = locations
       .filter(loc => loc.type === 'TEMP_NODE')
       .filter(loc => {
+        // 1. Is Node in Auto Mode? (Default true)
+        const isAuto = sprinklerStatus.autoMode[loc.id] ?? true;
+        if (!isAuto) return false;
+
+        // 2. Is Node Currently Active?
+        if (sprinklerStatus.activeNodes[loc.id]) return false;
+
+        // 3. Cooldown Check
         const lastTreated = zoneLastTreated[loc.id];
         if (!lastTreated) return true;
         const minutesSince = (now.getTime() - lastTreated.getTime()) / 60000;
@@ -509,7 +499,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen pb-12 bg-slate-50">
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-4 md:px-8">
+      <header className="relative bg-white border-b border-slate-200 px-4 py-4 md:px-8">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4 relative">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-900 rounded-lg shadow-lg">

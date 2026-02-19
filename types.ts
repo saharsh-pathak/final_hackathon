@@ -34,7 +34,7 @@ export interface SprinklerStatus {
   aqiAfter?: number;
   waterUsed?: number;
   threshold: number;
-  autoMode: boolean;
+  autoMode: { [nodeId: string]: boolean };
   manualTargetId?: string;
   manualStartTime?: number;
   activeNodes: { [nodeId: string]: number }; // Map of nodeId -> startTime

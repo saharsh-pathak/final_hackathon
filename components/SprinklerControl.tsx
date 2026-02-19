@@ -9,12 +9,15 @@ interface SprinklerControlProps {
     nodeName?: string;
     onTrigger: (targetId?: string) => void;
     onStop: (targetId?: string) => void;
-    onToggleMode: (mode: boolean) => void;
+    onToggleMode: (targetId: string, mode: boolean) => void;
     onSetThreshold: (value: number) => void;
 }
 
 const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, forecastPeakAQI, selectedId, nodeName, onTrigger, onStop, onToggleMode, onSetThreshold }) => {
     const [showFullHistory, setShowFullHistory] = useState(false);
+
+    // Default to Auto if not set or no selection, but if selected, use specific mode
+    const isAuto = selectedId ? (status.autoMode[selectedId] ?? true) : true;
 
     return (
         <div className="bg-white rounded-lg p-6 border border-slate-200">
@@ -22,14 +25,16 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
                 <h2 className="text-xl font-black text-slate-900">Sprinkler Control</h2>
                 <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg">
                     <button
-                        onClick={() => onToggleMode(true)}
-                        className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all ${status.autoMode ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                        onClick={() => selectedId && onToggleMode(selectedId, true)}
+                        className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all ${isAuto ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'} ${!selectedId ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        disabled={!selectedId}
                     >
                         Auto
                     </button>
                     <button
-                        onClick={() => onToggleMode(false)}
-                        className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all ${!status.autoMode ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                        onClick={() => selectedId && onToggleMode(selectedId, false)}
+                        className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all ${!isAuto ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'} ${!selectedId ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        disabled={!selectedId}
                     >
                         Manual
                     </button>
@@ -39,7 +44,7 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
             <div className="mb-8">
                 <div className="space-y-4">
                     {/* Mode Specific UI */}
-                    {status.autoMode ? (
+                    {isAuto && selectedId ? (
                         <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-100">
                             <div>
                                 <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-0.5">Automatic Mode</span>
