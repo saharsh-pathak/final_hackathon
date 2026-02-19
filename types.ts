@@ -35,6 +35,9 @@ export interface SprinklerStatus {
   waterUsed?: number;
   threshold: number;
   autoMode: boolean;
+  manualTargetId?: string;
+  manualStartTime?: number;
+  activeNodes: { [nodeId: string]: number }; // Map of nodeId -> startTime
 }
 
 export interface PredictionReading extends Reading {

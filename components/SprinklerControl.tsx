@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { SprinklerStatus, SprinklerState } from '../types';
 
@@ -6,38 +5,94 @@ interface SprinklerControlProps {
     status: SprinklerStatus;
     history: any[];
     forecastPeakAQI: number;
-    onTrigger: () => void;
+    selectedId: string | null;
+    nodeName?: string;
+    onTrigger: (targetId?: string) => void;
+    onStop: (targetId?: string) => void;
+    onToggleMode: (mode: boolean) => void;
     onSetThreshold: (value: number) => void;
 }
 
-const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, forecastPeakAQI, onTrigger, onSetThreshold }) => {
+const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, forecastPeakAQI, selectedId, nodeName, onTrigger, onStop, onToggleMode, onSetThreshold }) => {
     const [showFullHistory, setShowFullHistory] = useState(false);
+
     return (
         <div className="bg-white rounded-lg p-6 border border-slate-200">
-            <div className="mb-8">
-                <h3 className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-1">Intervention Manager</h3>
+            <div className="mb-6 flex justify-between items-center">
                 <h2 className="text-xl font-black text-slate-900">Sprinkler Control</h2>
+                <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg">
+                    <button
+                        onClick={() => onToggleMode(true)}
+                        className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all ${status.autoMode ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                        Auto
+                    </button>
+                    <button
+                        onClick={() => onToggleMode(false)}
+                        className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all ${!status.autoMode ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                    >
+                        Manual
+                    </button>
+                </div>
             </div>
 
             <div className="mb-8">
                 <div className="space-y-4">
-                    {/* Static Automatic Mode indicator — always active, no toggle */}
-                    <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-100">
-                        <div>
-                            <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-0.5">Automatic Mode</span>
-                            <span className="text-xs font-bold text-blue-900">
-                                {status.state === SprinklerState.ACTIVE ? 'Spraying in Progress...' : 'Active — Monitoring Continuously'}
-                            </span>
+                    {/* Mode Specific UI */}
+                    {status.autoMode ? (
+                        <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-100">
+                            <div>
+                                <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-0.5">Automatic Mode</span>
+                                <span className="text-xs font-bold text-blue-900">
+                                    {status.state === SprinklerState.ACTIVE ? 'Spraying in Progress...' : 'Active — Monitoring Continuously'}
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className={`w-2.5 h-2.5 rounded-sm ${status.state === SprinklerState.ACTIVE ? 'bg-green-500 animate-pulse' : 'bg-blue-500'}`} />
+                                <span className="text-[10px] font-black text-blue-700 uppercase tracking-widest">
+                                    {status.state === SprinklerState.ACTIVE ? 'Active' : 'Standby'}
+                                </span>
+                            </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                            <span className={`w-2.5 h-2.5 rounded-sm ${status.state === SprinklerState.ACTIVE ? 'bg-green-500 animate-pulse' : 'bg-blue-500'}`} />
-                            <span className="text-[10px] font-black text-blue-700 uppercase tracking-widest">
-                                {status.state === SprinklerState.ACTIVE ? 'Active' : 'Standby'}
-                            </span>
+                    ) : (
+                        <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                            <div className="flex justify-between items-start mb-4">
+                                <div>
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Manual Control</span>
+                                    <span className="text-xs font-bold text-slate-900">
+                                        {selectedId ? `Target: ${nodeName || 'Selected Node'}` : 'Select a Node to Control'}
+                                    </span>
+                                </div>
+                                {selectedId && status.activeNodes && status.activeNodes[selectedId] && (
+                                    <div className="px-2 py-1 bg-green-100 text-green-700 rounded text-[9px] font-black uppercase">
+                                        Active ({Math.max(0, 10 - Math.floor((Date.now() - status.activeNodes[selectedId]) / 60000))}m left)
+                                    </div>
+                                )}
+                            </div>
+
+                            {selectedId ? (
+                                status.activeNodes && status.activeNodes[selectedId] ? (
+                                    <button
+                                        onClick={() => onStop(selectedId)}
+                                        className="w-full py-3 bg-red-500 hover:bg-red-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-md"
+                                    >
+                                        STOP SPRINKLER
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={() => onTrigger(selectedId)}
+                                        className="w-full py-3 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg"
+                                    >
+                                        START SPRINKLER
+                                    </button>
+                                )
+                            ) : (
+                                <button disabled className="w-full py-3 bg-slate-200 text-slate-400 rounded-lg text-[10px] font-black uppercase tracking-widest cursor-not-allowed">
+                                    Select Node on Map
+                                </button>
+                            )}
                         </div>
-                    </div>
-
-
+                    )}
                 </div>
             </div>
 
@@ -57,7 +112,7 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
                         <tbody className="divide-y divide-slate-50">
                             {history.length > 0 ? history.slice(0, 3).map((h, i) => (
                                 <tr key={i} className="text-[10px] font-bold text-slate-600 hover:bg-slate-50 transition-colors">
-                                    <td className="px-4 py-3">{new Date(h.timestamp).toLocaleTimeString()}</td>
+                                    <td className="px-4 py-3">{new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</td>
                                     <td className="px-4 py-3">{h.duration} min</td>
                                     <td className="px-4 py-3">
                                         <div className="flex items-center gap-1.5">
@@ -89,9 +144,9 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
                 {history.length > 3 && (
                     <button
                         onClick={() => setShowFullHistory(true)}
-                        className="mt-4 w-full py-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-black uppercase tracking-widest transition-all"
+                        className="w-full py-3 bg-slate-50 hover:bg-slate-100 text-blue-600 font-black text-[10px] uppercase tracking-widest transition-colors border-t border-slate-100"
                     >
-                        Show More ({history.length} total entries)
+                        Show More
                     </button>
                 )}
             </div>
@@ -135,7 +190,7 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
                                 <tbody className="divide-y divide-slate-50">
                                     {history.map((h, i) => (
                                         <tr key={i} className="text-[10px] font-bold text-slate-600 hover:bg-slate-50 transition-colors">
-                                            <td className="px-4 py-3">{new Date(h.timestamp).toLocaleTimeString()}</td>
+                                            <td className="px-4 py-3">{new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</td>
                                             <td className="px-4 py-3">{h.duration} min</td>
                                             <td className="px-4 py-3">
                                                 <div className="flex items-center gap-1.5">

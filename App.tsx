@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { LocationData, AQICategory, SprinklerStatus, SprinklerState } from './types';
 import { TEMP_AQI_LOCATIONS, NAQI_BREAKPOINTS, OFFICIAL_STATION_DATA, MAP_CENTER } from './constants';
 import { calculateAQI, generateMockHistory, simulateNodeData, generateMockPredictions, simulateSprinklerImpact, subscribeToNode1, Node1FirebaseData } from './services/aqiService';
@@ -15,7 +15,8 @@ const App: React.FC = () => {
   const [sprinklerStatus, setSprinklerStatus] = useState<SprinklerStatus>({
     state: SprinklerState.INACTIVE,
     threshold: 80, // Target AQI
-    autoMode: true // Always on — automatic mode is the only mode
+    autoMode: true, // Always on — automatic mode is the only mode
+    activeNodes: {}
   });
   const [sprinklerHistory, setSprinklerHistory] = useState<any[]>([]);
   const [zoneLastTreated, setZoneLastTreated] = useState<{ [zoneId: string]: Date }>({});
@@ -27,6 +28,13 @@ const App: React.FC = () => {
     timestamp: string; aqi: number; pm25: number; pm10: number;
     humidity: number; temperature: number; relayStatus: string;
   }>>([]);
+  const [time, setTime] = useState(new Date());
+  const manualTimersRef = useRef<{ [key: string]: NodeJS.Timeout }>({});
+
+  useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Firebase live subscription for Node-1
   useEffect(() => {
@@ -107,6 +115,7 @@ const App: React.FC = () => {
             ...loc,
             currentReading: {
               timestamp: new Date().toISOString(),
+              temperature: 28 + Math.random() * 4, // Simulate temp for others
               ...nodeReading
             },
             history: generateMockHistory(nodeReading.pm25),
@@ -215,10 +224,125 @@ const App: React.FC = () => {
     return Math.round(sum / validReadings.length);
   }, [locations]);
 
-  const handleTriggerSprinkler = () => {
-    if (sprinklerStatus.state === SprinklerState.ACTIVE) return;
+  const handleStopSprinkler = (targetId?: string) => {
+    if (!targetId) return; // Need ID for independent control
 
-    // Select the zone with highest AQI that hasn't been treated recently
+    if (manualTimersRef.current[targetId]) {
+      clearTimeout(manualTimersRef.current[targetId]);
+      delete manualTimersRef.current[targetId];
+    }
+
+    setSprinklerStatus(prev => {
+      const newActive = { ...prev.activeNodes };
+      delete newActive[targetId];
+      // If no active nodes, set state to INACTIVE (optional, but good for global status)
+      const isActive = Object.keys(newActive).length > 0;
+      return {
+        ...prev,
+        state: isActive ? SprinklerState.ACTIVE : SprinklerState.INACTIVE,
+        activeNodes: newActive
+      };
+    });
+  };
+
+  const handleToggleMode = (isAuto: boolean) => {
+    // Independent toggling? Or global mode?
+    // User said "Manual sprinkler control will be independent...".
+    // But toggle is usually global mode switch.
+    // If switching to Auto, maybe keep manual active? Or stop?
+    // User said: "SPRINKLER STSTUS SHOULD UPDATE FROM "Standby" TO LIVE whenever... be it manually or in Automatic mode."
+    // I'll keep mode toggle global for now, but allow manual trigger even in auto?
+    // Or just switch mode.
+    // If Auto Mode is ON, maybe manual buttons are hidden?
+    // "Manual Mode allows use to turn on..." -> Implies Manual Mode enables manual buttons.
+    // If switching to Auto, ideally we stop manual?
+    // "THE MANUAL SPRINKLER CONTROL WILL BE INDEPENDENT... AND WILL NOT BE AFFECTED BY ONE-ANOTHER".
+    // This refers to nodes.
+    // I'll just set the flag.
+    if (isAuto && !sprinklerStatus.autoMode) {
+      // Switching TO Auto.
+      // Should we stop all manual active sprinklers?
+      // "WILL BE ABLE TO RUN SIMULTANEOUSLY".
+      // Maybe manual overrides are fine.
+      // I'll leave them running to be safe/flexible.
+    }
+    setSprinklerStatus(p => ({ ...p, autoMode: isAuto }));
+  };
+
+  const handleTriggerSprinkler = (manualTargetId?: string) => {
+    // --- MANUAL MODE LOGIC ---
+    if (!sprinklerStatus.autoMode || manualTargetId) {
+      // If manualTargetId is provided, treating as manual trigger (even if in Auto mode? User said "be it manually or in Automatic mode").
+      // But UI only shows buttons in Manual Mode.
+      if (!manualTargetId) return;
+
+      const targetZone = locations.find(l => l.id === manualTargetId);
+      if (!targetZone) return;
+
+      // Check if already active
+      if (sprinklerStatus.activeNodes[manualTargetId]) return;
+
+      const aqiBefore = targetZone.currentReading.aqi;
+      const roundedDuration = 10;
+
+      setSprinklerStatus(prev => ({
+        ...prev,
+        state: SprinklerState.ACTIVE, // At least one is active
+        activeNodes: { ...prev.activeNodes, [manualTargetId]: Date.now() }
+      }));
+
+      console.log(`💧 MANUALLY Activating sprinkler for ${targetZone.name}`);
+
+      setZoneLastTreated(prev => ({
+        ...prev,
+        [manualTargetId]: new Date()
+      }));
+
+      // Independent Timeout
+      const timer = setTimeout(() => {
+        handleStopSprinkler(manualTargetId);
+
+        // History Log logic...
+        const aqiAfter = simulateSprinklerImpact(aqiBefore);
+        const newEntry = {
+          timestamp: new Date().toISOString(),
+          duration: roundedDuration,
+          aqiBefore,
+          aqiAfter,
+          affectedZones: [targetZone.name],
+          zoneCount: 1,
+          zoneId: targetZone.id
+        };
+        setSprinklerHistory(prev => [newEntry, ...prev]);
+
+        // Update AQI
+        setLocations(prev => prev.map(loc => {
+          if (loc.id === targetZone.id) {
+            const newPM = loc.currentReading.pm25 * (aqiAfter / aqiBefore);
+            const { aqi, category } = calculateAQI(newPM);
+            return {
+              ...loc,
+              currentReading: { ...loc.currentReading, pm25: newPM, aqi, category }
+            };
+          }
+          return loc;
+        }));
+
+        console.log(`✅ Manual treatment complete for ${targetZone.name}`);
+      }, 10 * 60 * 1000); // 10 mins
+
+      manualTimersRef.current[manualTargetId] = timer;
+      return;
+    }
+
+    // --- AUTOMATIC MODE LOGIC (Existing) ---
+    if (sprinklerStatus.state === SprinklerState.ACTIVE) return; // Global auto check? Or per node?
+    // Auto mimics existing single-target logic for now, or adapt to multiple?
+    // User didn't explicitly ask to change Auto logic to multi-target, just manual.
+    // I'll keep Auto as single-stream for simplicity unless required.
+    // "THE MANUAL SPRINKLER CONTROL WILL BE INDEPENDENT...".
+
+    // Select the zone with highest AQI...
     const COOLDOWN_MINUTES = 20;
     const now = new Date();
 
@@ -247,11 +371,15 @@ const App: React.FC = () => {
     const calculatedDuration = Math.min(Math.max(baseDuration * aqiFactor * humidityFactor, 2), 10);
     const roundedDuration = Math.round(calculatedDuration * 10) / 10;
 
-    setSprinklerStatus(prev => ({ ...prev, state: SprinklerState.ACTIVE }));
+    setSprinklerStatus(prev => ({
+      ...prev,
+      state: SprinklerState.ACTIVE,
+      activeNodes: { ...prev.activeNodes, [targetZone.id]: Date.now() }
+    }));
 
     console.log(`💧 Activating sprinkler for ${targetZone.name} (AQI: ${aqiBefore})`);
 
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       const aqiAfter = simulateSprinklerImpact(aqiBefore);
 
       const newEntry = {
@@ -265,11 +393,23 @@ const App: React.FC = () => {
       };
 
       setSprinklerHistory(prev => [newEntry, ...prev]);
-      setSprinklerStatus(prev => ({
-        ...prev,
-        state: SprinklerState.INACTIVE,
-        lastActivation: new Date().toISOString()
-      }));
+
+      // Stop logic matching handleStopSprinkler but with specific history/AQI updates
+      setSprinklerStatus(prev => {
+        const newActive = { ...prev.activeNodes };
+        delete newActive[targetZone.id];
+        return {
+          ...prev,
+          state: Object.keys(newActive).length > 0 ? SprinklerState.ACTIVE : SprinklerState.INACTIVE,
+          lastActivation: new Date().toISOString(),
+          activeNodes: newActive
+        };
+      });
+
+      // Clean up timer ref if it finished naturally
+      if (manualTimersRef.current[targetZone.id]) {
+        delete manualTimersRef.current[targetZone.id];
+      }
 
       // Update only the treated zone's AQI
       setLocations(prev => prev.map(loc => {
@@ -291,7 +431,10 @@ const App: React.FC = () => {
       }));
 
       console.log(`✅ ${targetZone.name} treated: ${aqiBefore} → ${aqiAfter} AQI`);
-    }, 5000);
+    }, 5000 * (roundedDuration / 3)); // Scale simulation time or keep fixed? Keeping fixed 5000 for now or use duration?
+    // Original was 5000. I'll keep 5000 for simulation speed.
+
+    manualTimersRef.current[targetZone.id] = timer;
   };
 
   // Automatic Trigger Logic: Forecast-Aware Proactive Maintenance
@@ -367,7 +510,7 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen pb-12 bg-slate-50">
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-4 md:px-8">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4 relative">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-900 rounded-lg shadow-lg">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -379,6 +522,17 @@ const App: React.FC = () => {
               <p className="text-[9px] text-blue-600 font-black uppercase tracking-widest mt-1">Strategic Urban Mitigation</p>
             </div>
           </div>
+
+          {/* 1. Time Display Widget - Centered */}
+          <div className="hidden md:absolute md:left-1/2 md:-translate-x-1/2 md:block px-6 py-2 bg-slate-100/80 backdrop-blur rounded-full border border-slate-200 shadow-sm">
+            <div className="flex flex-col items-center">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-0.5" style={{ fontSize: '0.6rem' }}>Local Time</span>
+              <span className="text-xl font-black text-slate-800 tracking-widest font-mono leading-none">
+                {time.toLocaleTimeString('en-US', { hour12: false })}
+              </span>
+            </div>
+          </div>
+
 
           <div className="flex items-center gap-6">
             <div className="text-right">
@@ -402,14 +556,19 @@ const App: React.FC = () => {
                 const isRecentlyTreated = minutesSince < 60;
                 const isLiveNode = loc.id === 'node-1' && node1Connected;
                 const isNode1 = loc.id === 'node-1';
+
+                // 2. No border highlight - always standard style unless selected
+                const borderClass = selectedId === loc.id
+                  ? 'bg-white border-blue-900 shadow-xl -translate-y-1'
+                  : 'bg-white border-transparent hover:border-slate-200 shadow-sm';
+
                 return (
-                  <button
+                  <div
                     key={loc.id}
                     onClick={() => {
                       setSelectedId(loc.id);
-                      if (isNode1) setHistoryModal(true);
                     }}
-                    className={`p-5 rounded-lg text-left border-4 transition-all relative ${selectedId === loc.id ? 'bg-white border-blue-900 shadow-2xl -translate-y-1' : isRecentlyTreated ? 'bg-white border-green-400 shadow-md hover:shadow-lg' : 'bg-white border-transparent hover:border-slate-100 shadow-sm'}`}
+                    className={`p-5 rounded-lg text-left border-4 transition-all relative cursor-pointer ${borderClass}`}
                   >
                     {isLiveNode && (
                       <div className="absolute top-2 right-2 flex items-center gap-1">
@@ -420,16 +579,26 @@ const App: React.FC = () => {
                         <span className="text-[8px] font-black text-green-600 uppercase">LIVE</span>
                       </div>
                     )}
-                    <div className={`w-8 h-1.5 rounded-full mb-4 ${info?.color}`} />
-                    <h4 className="text-[9px] font-black text-slate-500 line-clamp-1 mb-1 uppercase tracking-tight">{loc.name}</h4>
+                    <div className="flex justify-between items-start mb-2">
+                      <h4 className="text-[9px] font-black text-slate-500 line-clamp-1 uppercase tracking-tight">{loc.name}</h4>
+
+                    </div>
                     <div className="flex items-baseline gap-1 mb-2">
                       <span className="text-2xl font-black text-slate-900">{loc.currentReading.aqi}</span>
                       <span className="text-[10px] font-bold text-slate-400">AQI</span>
                     </div>
                     {isNode1 && (
-                      <span className="text-[8px] font-black text-blue-500 uppercase tracking-widest">View History →</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setHistoryModal(true);
+                        }}
+                        className="text-[8px] font-black text-blue-500 uppercase tracking-widest hover:underline bg-transparent border-none p-0 cursor-pointer"
+                      >
+                        View History →
+                      </button>
                     )}
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -439,6 +608,10 @@ const App: React.FC = () => {
               history={sprinklerHistory}
               forecastPeakAQI={forecastPeakAQI}
               onTrigger={handleTriggerSprinkler}
+              onStop={handleStopSprinkler}
+              onToggleMode={handleToggleMode}
+              selectedId={selectedId}
+              nodeName={selectedLocation?.name}
               onSetThreshold={(val) => setSprinklerStatus(p => ({ ...p, threshold: val }))}
             />
 
@@ -450,15 +623,15 @@ const App: React.FC = () => {
             {selectedLocation ? (
               <>
                 <div className="bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden">
-                  <div className={`h-3 ${getAqiInfo(selectedLocation.currentReading.category)?.color}`} />
+
                   <div className="p-8">
                     <div className="flex justify-between items-start mb-8">
                       <div>
                         <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2 block">
                           {selectedLocation.type === 'OFFICIAL' ? 'Official Reference' : 'Hyperlocal Node'}
                         </span>
-                        <h2 className="text-3xl font-black text-slate-900 leading-none">{selectedLocation.name}</h2>
-                        {selectedLocation.isSimulated && <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2 block italic">Virtualized Simulation Node</span>}
+                        <h2 className="text-2xl font-black text-slate-900 leading-tight">{selectedLocation.name}</h2>
+
                       </div>
                       <div className={`px-6 py-4 rounded-lg text-center ${getAqiInfo(selectedLocation.currentReading.category)?.color} text-white shadow-2xl`}>
                         <div className="text-4xl font-black tracking-tighter">{selectedLocation.currentReading.aqi}</div>
@@ -489,40 +662,62 @@ const App: React.FC = () => {
                         </div>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-3 gap-3 mb-8">
+                      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
+                        {/* 1. PM2.5 for ALL nodes */}
                         <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
                           <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">PM2.5</span>
-                          <span className="text-xl font-black text-slate-800">{selectedLocation.currentReading.pm25.toFixed(2)}</span>
+                          <span className="text-xl font-black text-slate-800">
+                            {selectedLocation.currentReading.pm25 ? selectedLocation.currentReading.pm25.toFixed(2) : '0.00'}
+                          </span>
                         </div>
+
+                        {/* 2. PM10: 0.00 for Node 1, real value for others */}
                         <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
                           <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">PM10</span>
-                          <span className="text-xl font-black text-slate-800">{selectedLocation.currentReading.pm10.toFixed(2)}</span>
+                          <span className="text-xl font-black text-slate-800">
+                            {selectedLocation.id === 'node-1' ? '0.00' : (selectedLocation.currentReading.pm10 ? selectedLocation.currentReading.pm10.toFixed(2) : '0.00')}
+                          </span>
                         </div>
+
+                        {/* 3. Humidity */}
                         <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
                           <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Humidity</span>
                           <span className="text-xl font-black text-slate-800">{selectedLocation.currentReading.humidity?.toFixed(1) || '--'}%</span>
                         </div>
-                        {selectedLocation.id === 'node-1' && node1LiveData && (
-                          <>
-                            <div className="p-5 rounded-lg bg-blue-50 border border-blue-100">
-                              <span className="text-[9px] font-black text-blue-400 uppercase block mb-1">Temperature</span>
-                              <span className="text-xl font-black text-blue-800">{node1LiveData.temperature.toFixed(1)}°C</span>
-                            </div>
-                            <div className={`p-5 rounded-lg col-span-2 border ${node1LiveData.relayStatus === 'ON'
-                              ? 'bg-green-50 border-green-200'
-                              : 'bg-slate-50 border-slate-100'
+
+                        {/* 4. Temperature */}
+                        <div className="p-5 rounded-lg bg-blue-50 border border-blue-100">
+                          <span className="text-[9px] font-black text-blue-400 uppercase block mb-1">Temperature</span>
+                          <span className="text-xl font-black text-blue-800">
+                            {selectedLocation.currentReading.temperature
+                              ? selectedLocation.currentReading.temperature.toFixed(1) + '°C'
+                              : '--'}
+                          </span>
+                        </div>
+
+                        {/* 5. Sprinkler Status for ALL nodes */}
+                        <div className={`p-5 rounded-lg col-span-2 border ${sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]
+                          ? 'bg-green-50 border-green-200'
+                          : 'bg-slate-50 border-slate-100'
+                          }`}>
+                          <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Sprinkler Status</span>
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2.5 h-2.5 rounded-full ${sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]
+                              ? 'bg-green-500 animate-pulse'
+                              : 'bg-slate-300'
+                              }`} />
+                            <span className={`text-xl font-black ${sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]
+                              ? 'text-green-700'
+                              : 'text-slate-500'
                               }`}>
-                              <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Relay / Sprinkler</span>
-                              <div className="flex items-center gap-2">
-                                <span className={`w-2.5 h-2.5 rounded-full ${node1LiveData.relayStatus === 'ON' ? 'bg-green-500 animate-pulse' : 'bg-slate-300'
-                                  }`} />
-                                <span className={`text-xl font-black ${node1LiveData.relayStatus === 'ON' ? 'text-green-700' : 'text-slate-500'
-                                  }`}>{node1LiveData.relayStatus}</span>
-                              </div>
-                            </div>
-                          </>
-                        )}
-                        <div className="p-5 rounded-lg bg-slate-50 border border-slate-100 col-span-3">
+                              {sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id] ? 'Active' : 'Standby'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* 6. Station Proximity (Width optimized if column span allowed?) */}
+                        {/* Currently 3 cols width in original. I'll maintain col-span-3 on large (md+), col-span-2 on mobile. */}
+                        <div className="p-5 rounded-lg bg-slate-50 border border-slate-100 col-span-2 lg:col-span-3">
                           <div className="flex justify-between items-center">
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
@@ -544,11 +739,35 @@ const App: React.FC = () => {
                                       Math.sin(dLon / 2) * Math.sin(dLon / 2);
                                     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
                                     return (R * c).toFixed(2);
-                                  })()} km from Ref Station
+                                  })()} km from Reference Station
                                 </span>
                               </div>
                             </div>
                             <div className="px-3 py-1 bg-green-100 text-green-700 rounded text-[8px] font-black uppercase">Hyperlocal Zone</div>
+                          </div>
+                        </div>
+
+                        {/* 7. Last Activation Widget */}
+                        <div className="p-5 rounded-lg bg-slate-50 border border-slate-100 col-span-2 lg:col-span-3">
+                          <div className="flex justify-between items-center">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b21a8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                              </div>
+                              <div>
+                                <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Last Activated</span>
+                                <span className="text-sm font-black text-purple-900 tracking-tight">
+                                  {zoneLastTreated[selectedLocation.id] ? (() => {
+                                    const diffMs = Date.now() - new Date(zoneLastTreated[selectedLocation.id]).getTime();
+                                    const diffMins = Math.floor(diffMs / 60000);
+                                    if (diffMins < 60) return `${diffMins} min ago`;
+                                    const diffHours = Math.floor(diffMins / 60);
+                                    return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+                                  })() : 'No recent activation'}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="px-3 py-1 bg-purple-100 text-purple-700 rounded text-[8px] font-black uppercase">Sprinkler History</div>
                           </div>
                         </div>
                       </div>
@@ -589,7 +808,8 @@ const App: React.FC = () => {
               {/* Header */}
               <div className="flex items-center justify-between px-8 py-6 border-b border-slate-100">
                 <div>
-                  <span className="text-[9px] font-black text-blue-600 uppercase tracking-widest block mb-1">Live ESP32 Readings — Node 1</span>
+                  {/* 9. Rename Header */}
+                  <span className="text-[9px] font-black text-blue-600 uppercase tracking-widest block mb-1">Live SENSOR Readings — Node 1</span>
                   <h2 className="text-xl font-black text-slate-900 tracking-tight">{node1Loc?.name ?? 'Sensor Node 1'}</h2>
                 </div>
                 <div className="flex items-center gap-4">
@@ -617,7 +837,8 @@ const App: React.FC = () => {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b-2 border-slate-100">
-                        {['Time', 'AQI', 'PM2.5', 'PM10', 'Humidity', 'Temp', 'Relay'].map(h => (
+                        {/* 4. Rename Relay to Sprinkler */}
+                        {['Time', 'AQI', 'PM2.5', 'PM10', 'Humidity', 'Temp', 'Sprinkler'].map(h => (
                           <th key={h} className="text-[8px] font-black text-slate-400 uppercase tracking-widest pb-3 text-left pr-3">{h}</th>
                         ))}
                       </tr>
@@ -630,8 +851,8 @@ const App: React.FC = () => {
                         return (
                           <tr key={i} className={`border-b border-slate-50 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
                             <td className="py-3 pr-3">
-                              <span className="font-black text-slate-800 block">{ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-                              <span className="text-[9px] text-slate-400">{ts.toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
+                              {/* 7. HH:MM only */}
+                              <span className="font-black text-slate-800 block">{ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
                             </td>
                             <td className="py-3 pr-3">
                               <span className={`px-2 py-0.5 rounded text-xs font-black text-white ${rInfo?.color ?? 'bg-slate-400'}`}>{r.aqi}</span>
@@ -642,7 +863,7 @@ const App: React.FC = () => {
                             <td className="py-3 pr-3 font-black text-slate-700">{r.temperature.toFixed(1)}°C</td>
                             <td className="py-3">
                               <span className={`px-2 py-0.5 rounded text-[8px] font-black ${r.relayStatus === 'ON' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
-                                }`}>{r.relayStatus}</span>
+                                }`}>{r.relayStatus === 'ON' ? 'ACTIVE' : 'OFF'}</span>
                             </td>
                           </tr>
                         );
@@ -653,8 +874,9 @@ const App: React.FC = () => {
               </div>
 
               <div className="px-8 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
+                {/* 8. Remove detailed count stats */}
                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                  {node1History.length === 0 ? 'No readings yet' : `${node1History.length} genuine reading${node1History.length > 1 ? 's' : ''} · max 10`}
+
                 </span>
                 <button
                   onClick={() => setHistoryModal(false)}
