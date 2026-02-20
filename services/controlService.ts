@@ -9,7 +9,7 @@ export function shouldActivateSprinkler(
     forecastPeak: number,
     humidity: number
 ): boolean {
-    const meetsAqiCriteria = currentAQI > 200 || forecastPeak > 200;
+    const meetsAqiCriteria = currentAQI > 150 || forecastPeak > 150;
     const meetsHumidityCriteria = humidity < 80;
 
     return meetsAqiCriteria && meetsHumidityCriteria;

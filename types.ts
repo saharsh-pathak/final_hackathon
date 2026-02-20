@@ -63,6 +63,8 @@ export interface Reading {
   category: AQICategory;
   humidity?: number;
   temperature?: number;
+  sprinklerActive?: boolean;
+  sprinklerStatus?: string;
 }
 
 export interface VerificationData {

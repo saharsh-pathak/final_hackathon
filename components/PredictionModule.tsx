@@ -1,14 +1,15 @@
-import React, { useEffect, useState } from 'react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, CartesianGrid } from 'recharts';
+import React, { useEffect, useState, useMemo } from 'react';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { fetchNodeHistory, getChartData, PredictionPoint } from '../services/predictionService';
 import { NAQI_BREAKPOINTS } from '../constants';
 
 interface PredictionModuleProps {
     selectedId: string | null;
     nodeName?: string;
+    sprinklerActive?: boolean;
 }
 
-const PredictionModule: React.FC<PredictionModuleProps> = ({ selectedId, nodeName }) => {
+const PredictionModule: React.FC<PredictionModuleProps> = ({ selectedId, nodeName, sprinklerActive }) => {
     const [chartData, setChartData] = useState<PredictionPoint[]>([]);
     const [loading, setLoading] = useState(true);
     const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
@@ -17,8 +18,6 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({ selectedId, nodeNam
         if (!selectedId) return;
         setLoading(true);
         try {
-            // Map frontend IDs to Firebase history nodes
-            // node-1 -> Node1, node-2 -> Node2, node-3 -> Node3, node-4 -> Node4
             const dbPath = selectedId.startsWith('node-')
                 ? selectedId.replace('node-', 'Node')
                 : selectedId;
@@ -49,7 +48,7 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({ selectedId, nodeNam
         return () => clearInterval(interval);
     }, [selectedId]);
 
-    const CustomTooltip = ({ active, payload, label }: any) => {
+    const CustomTooltip = ({ active, payload }: any) => {
         if (active && payload && payload.length) {
             const data = payload[0].payload;
             const isForecast = data.type === 'forecast';
@@ -77,27 +76,53 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({ selectedId, nodeNam
         return new Date(tickItem).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
     };
 
+    const historyPoints = useMemo(() => chartData.filter(d => d.type === 'historical'), [chartData]);
+    const forecastPoints = useMemo(() => chartData.filter(d => d.type === 'forecast'), [chartData]);
+
+    const forecastChartData = useMemo(() => {
+        const lastHistorical = historyPoints[historyPoints.length - 1];
+        return lastHistorical ? [lastHistorical, ...forecastPoints] : forecastPoints;
+    }, [historyPoints, forecastPoints]);
+
     return (
-        <div className="bg-white rounded-lg p-6 border border-slate-200 shadow-sm h-full">
+        <div className="bg-white rounded-lg p-6 border border-slate-200 shadow-sm h-full flex flex-col">
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h3 className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-1">AI Forecast Model</h3>
-                    <h2 className="text-xl font-black text-slate-900">{nodeName || 'Node'} Trajectory</h2>
+                    <h2 className="text-xl font-black text-slate-900">{nodeName || 'Sensor Node 1'} Forecast</h2>
                 </div>
                 <div className="text-right">
                     <div className="flex items-center gap-2 justify-end mb-1">
                         <span className="w-2.5 h-0.5 bg-blue-500"></span>
                         <span className="text-[9px] font-bold text-slate-500 uppercase">Trend</span>
-                        <span className="w-2.5 h-0.5 bg-purple-500 border-dashed border-t border-purple-500 ml-2"></span>
+                        <span className="w-2.5 h-0.5 border-t-2 border-dashed border-purple-500 ml-2"></span>
                         <span className="text-[9px] font-bold text-slate-500 uppercase">Prediction</span>
                     </div>
                 </div>
             </div>
 
-            <div className="h-64 w-full">
+            {sprinklerActive && (
+                <div className="mb-6 px-4 py-3 bg-green-50 border border-green-100 rounded-lg flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="relative flex h-2.5 w-2.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+                        </div>
+                        <span className="text-[10px] font-black text-green-700 uppercase tracking-widest">Mitigation Active</span>
+                    </div>
+                    <span className="text-[9px] font-bold text-green-600 uppercase">Sprinkler System Operational</span>
+                </div>
+            )}
+
+            <div className="flex-grow h-64 w-full relative">
                 {loading && chartData.length === 0 ? (
-                    <div className="h-full flex items-center justify-center text-slate-400 text-xs font-bold animate-pulse">
+                    <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-xs font-bold animate-pulse">
                         Calculating Regression Model...
+                    </div>
+                ) : chartData.length === 0 ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest">No Sensor History Found</span>
+                        <span className="text-[8px] font-bold opacity-60">Path: history/{selectedId?.replace('node-', 'Node') || 'Node1'}</span>
                     </div>
                 ) : (
                     <ResponsiveContainer width="100%" height="100%">
@@ -120,11 +145,10 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({ selectedId, nodeNam
                             />
                             <Tooltip content={<CustomTooltip />} />
 
-                            {/* Historical Line */}
                             <Line
                                 type="monotone"
                                 dataKey="aqi"
-                                data={chartData.filter(d => d.type === 'historical')}
+                                data={historyPoints}
                                 stroke="#3b82f6"
                                 strokeWidth={3}
                                 dot={false}
@@ -132,11 +156,10 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({ selectedId, nodeNam
                                 isAnimationActive={false}
                             />
 
-                            {/* Forecast Line */}
                             <Line
                                 type="monotone"
                                 dataKey="aqi"
-                                data={chartData.filter(d => d.type === 'forecast' || d === chartData.filter(x => x.type === 'historical').pop())}
+                                data={forecastChartData}
                                 stroke="#a855f7"
                                 strokeWidth={3}
                                 strokeDasharray="5 5"

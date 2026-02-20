@@ -20,6 +20,8 @@ export interface Node1FirebaseData {
   humidity: number;
   temperature: number;
   relayStatus: string;
+  sprinklerActive: boolean;
+  sprinklerStatus: string;
   timestamp: number;
 }
 
@@ -34,8 +36,13 @@ export const subscribeToNode1 = (
   onValue(nodeRef, (snapshot) => {
     const data = snapshot.val();
     if (data) {
+      console.log('📡 [Firebase] Received live update for Node1:', data);
       callback(data as Node1FirebaseData);
+    } else {
+      console.warn('📡 [Firebase] Node1 path exists but is empty or malformed.');
     }
+  }, (error) => {
+    console.error('📡 [Firebase] Subscription error for Node1:', error);
   });
   return () => off(nodeRef);
 };
@@ -48,6 +55,27 @@ export const calculateAQI = (pm25: number): { aqi: number, category: AQICategory
     aqi: Math.round(aqi),
     category: bp.category
   };
+};
+
+export const calculatePM25FromAQI = (aqi: number): number => {
+  const bp = NAQI_BREAKPOINTS.find(b => aqi >= b.minAQI && aqi <= b.maxAQI) || NAQI_BREAKPOINTS[NAQI_BREAKPOINTS.length - 1];
+  const pm25 = ((aqi - bp.minAQI) * (bp.maxPM25 - bp.minPM25) / (bp.maxAQI - bp.minAQI)) + bp.minPM25;
+  return parseFloat(pm25.toFixed(1));
+};
+
+export const getCategoryFromAQI = (aqi: any): AQICategory => {
+  const numericAQI = typeof aqi === 'string' ? parseFloat(aqi) : aqi;
+
+  if (isNaN(numericAQI)) return AQICategory.GOOD;
+
+  // Find the exact breakpoint where minAQI <= val <= maxAQI
+  const bp = NAQI_BREAKPOINTS.find(b => numericAQI >= b.minAQI && numericAQI <= b.maxAQI);
+
+  if (bp) return bp.category;
+
+  // Logical Fallbacks for out-of-range values
+  if (numericAQI > 500) return AQICategory.SEVERE;
+  return AQICategory.GOOD;
 };
 
 export const calculateClusterMetrics = (
@@ -264,6 +292,16 @@ export const simulateSprinklerImpact = (currentAQI: number): number => {
   // Simulate 15-30% reduction as per PRD
   const reductionFactor = 0.15 + Math.random() * 0.15;
   return Math.max(10, Math.round(currentAQI * (1 - reductionFactor)));
+};
+
+export const pushSensorHistory = async (nodeId: string, data: { aqi: number, humidity: number, temperature: number, timestamp: number }) => {
+  try {
+    const historyRef = ref(db, `history/${nodeId}`);
+    await push(historyRef, data);
+    console.log(`📊 [History Recorder] Data point saved for ${nodeId}`);
+  } catch (error) {
+    console.error(`❌ [History Recorder] Error saving history for ${nodeId}:`, error);
+  }
 };
 
 export const saveActivationToFirebase = async (entry: SprinklerHistoryEntry) => {

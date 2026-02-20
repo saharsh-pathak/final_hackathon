@@ -11,9 +11,10 @@ interface SprinklerControlProps {
     onStop: (targetId?: string) => void;
     onToggleMode: (targetId: string, mode: boolean) => void;
     onSetThreshold: (value: number) => void;
+    isHardwareActive?: boolean;
 }
 
-const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, forecastPeakAQI, selectedId, nodeName, onTrigger, onStop, onToggleMode, onSetThreshold }) => {
+const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, forecastPeakAQI, selectedId, nodeName, onTrigger, onStop, onToggleMode, onSetThreshold, isHardwareActive }) => {
     const [showFullHistory, setShowFullHistory] = useState(false);
 
     // Filter history based on selected node
@@ -54,13 +55,13 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
                             <div>
                                 <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-0.5">Automatic Mode</span>
                                 <span className="text-xs font-bold text-blue-900">
-                                    {status.state === SprinklerState.ACTIVE ? 'Spraying in Progress...' : 'Active — Monitoring Continuously'}
+                                    {(isHardwareActive || (selectedId && status.activeNodes[selectedId])) ? 'Spraying in Progress...' : 'Active — Monitoring Continuously'}
                                 </span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <span className={`w-2.5 h-2.5 rounded-sm ${status.state === SprinklerState.ACTIVE ? 'bg-green-500 animate-pulse' : 'bg-blue-500'}`} />
+                                <span className={`w-2.5 h-2.5 rounded-sm ${(isHardwareActive || (selectedId && status.activeNodes[selectedId])) ? 'bg-green-500 animate-pulse' : 'bg-blue-500'}`} />
                                 <span className="text-[10px] font-black text-blue-700 uppercase tracking-widest">
-                                    {status.state === SprinklerState.ACTIVE ? 'Active' : 'Standby'}
+                                    {(isHardwareActive || (selectedId && status.activeNodes[selectedId])) ? 'Active' : 'Standby'}
                                 </span>
                             </div>
                         </div>

@@ -123,8 +123,21 @@ const AQIMap: React.FC<AQIMapProps> = ({ locations, selectedId, onSelectLocation
     // 2. Render TEMP Nodes (Permanently Visible)
     locations.filter(l => l.type === 'TEMP_NODE').forEach((loc) => {
       const color = getColor(loc.currentReading.category);
+      const isSprinklerActive = loc.currentReading.sprinklerActive;
       const latLng = L.latLng(Number(loc.coordinates[0]), Number(loc.coordinates[1]));
-      const markerHtml = `<div style="width: 44px; height: 44px; border-radius: 50%; border: 4px solid white; background-color: ${color}; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; font-size: 12px;">${loc.currentReading.aqi}</div>`;
+
+      const markerHtml = `
+        <div style="position: relative; width: 44px; height: 44px;">
+          ${isSprinklerActive ? `
+            <div class="sprinkler-ripple" style="position: absolute; top: -10px; left: -10px; right: -10px; bottom: -10px; border-radius: 50%; background: rgba(59, 130, 246, 0.4); z-index: -1;"></div>
+            <div class="mist-overlay" style="position: absolute; top: -20px; left: -20px; width: 84px; height: 84px; background: radial-gradient(circle, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0) 70%); border-radius: 50%; pointer-events: none; z-index: 1;"></div>
+          ` : ''}
+          <div style="width: 44px; height: 44px; border-radius: 50%; border: 4px solid white; background-color: ${color}; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; font-size: 12px; box-shadow: ${isSprinklerActive ? '0 0 20px #3b82f6' : '0 4px 6px -1px rgba(0,0,0,0.1)'}; relative; z-index: 2;">
+            ${loc.currentReading.aqi}
+          </div>
+        </div>
+      `;
+
       const icon = L.divIcon({ className: 'temp-marker', html: markerHtml, iconSize: [44, 44], iconAnchor: [22, 22] });
       const marker = L.marker(latLng, { icon, zIndexOffset: 500 }).addTo(map).on('click', () => onSelectLocation(loc.id));
       markersRef.current[loc.id] = marker;
@@ -141,6 +154,23 @@ const AQIMap: React.FC<AQIMapProps> = ({ locations, selectedId, onSelectLocation
 
   return (
     <div className="relative w-full h-[550px] rounded-lg overflow-hidden shadow-2xl border-4 border-white">
+      <style>{`
+        @keyframes sprinklerRipple {
+          0% { transform: scale(0.8); opacity: 0.8; }
+          100% { transform: scale(1.5); opacity: 0; }
+        }
+        .sprinkler-ripple {
+          animation: sprinklerRipple 2s infinite ease-out;
+        }
+        @keyframes mistFlow {
+          0% { transform: translate(-5%, -5%) scale(1); opacity: 0.4; }
+          50% { transform: translate(5%, 5%) scale(1.1); opacity: 0.6; }
+          100% { transform: translate(-5%, -5%) scale(1); opacity: 0.4; }
+        }
+        .mist-overlay {
+          animation: mistFlow 4s infinite ease-in-out;
+        }
+      `}</style>
       <div ref={mapContainerRef} className="w-full h-full bg-slate-50" />
 
       {/* Legend & UI Overlays */}

@@ -33,9 +33,9 @@ export const fetchNodeHistory = async (nodeId: string): Promise<DataPoint[]> => 
         const data: DataPoint[] = [];
         snapshot.forEach((child) => {
             const val = child.val();
-            if (val.timestamp && typeof val.aqi === 'number') {
-                // Ensure timestamp is in milliseconds
-                const ts = val.timestamp > 10000000000 ? val.timestamp : val.timestamp * 1000;
+            const ts = Number(val.timestamp);
+
+            if (!isNaN(ts) && typeof val.aqi === 'number') {
                 data.push({
                     timestamp: ts,
                     aqi: val.aqi
@@ -43,7 +43,12 @@ export const fetchNodeHistory = async (nodeId: string): Promise<DataPoint[]> => 
             }
         });
 
-        return data;
+        if (data.length === 0) {
+            console.warn(`⚠️ fetchNodeHistory [${nodeId}]: No valid data points found in snapshot`);
+        }
+
+        // Ensure sorted by time
+        return data.sort((a, b) => a.timestamp - b.timestamp);
     } catch (error) {
         console.error(`Error fetching ${nodeId} history:`, error);
         return [];
@@ -57,7 +62,7 @@ export const fetchNodeHistory = async (nodeId: string): Promise<DataPoint[]> => 
  */
 const performLinearRegression = (data: DataPoint[]) => {
     const n = data.length;
-    if (n < 2) return { m: 0, b: data[0]?.aqi || 0 };
+    if (n < 2) return { m: 0, b: data[0]?.aqi || 0, firstTime: data[0]?.timestamp || Date.now() };
 
     const firstTime = data[0].timestamp;
 
@@ -67,7 +72,7 @@ const performLinearRegression = (data: DataPoint[]) => {
     let sumXX = 0;
 
     data.forEach(point => {
-        // Convert time to minutes relative to start for numerical stability
+        // x is minutes relative to first data point
         const x = (point.timestamp - firstTime) / 60000;
         const y = point.aqi;
 
@@ -97,12 +102,15 @@ export const predictNext30Minutes = (history: DataPoint[]): PredictionPoint[] =>
     const relevantHistory = history.filter(h => (latestTimestamp - h.timestamp) <= ONE_HOUR);
 
     if (relevantHistory.length < 2) {
-        // Not enough data, return flat line from last known point
-        const lastVal = relevantHistory[relevantHistory.length - 1]?.aqi || 0;
+        // Not enough data for regression, return flat line from last known point
+        const lastPoint = relevantHistory[relevantHistory.length - 1] || history[history.length - 1];
+        const lastVal = lastPoint?.aqi || 0;
+        const baseTs = lastPoint?.timestamp || latestTimestamp;
+
         const predictions: PredictionPoint[] = [];
         for (let i = 1; i <= 6; i++) {
             predictions.push({
-                timestamp: new Date(latestTimestamp + i * 5 * 60000).toISOString(),
+                timestamp: new Date(baseTs + i * 5 * 60000).toISOString(),
                 aqi: lastVal,
                 type: 'forecast'
             });

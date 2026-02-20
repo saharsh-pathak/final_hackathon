@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { LocationData, AQICategory, SprinklerStatus, SprinklerState } from './types';
 import { TEMP_AQI_LOCATIONS, NAQI_BREAKPOINTS, OFFICIAL_STATION_DATA, MAP_CENTER } from './constants';
-import { calculateAQI, generateMockHistory, simulateNodeData, generateMockPredictions, simulateSprinklerImpact, subscribeToNode1, Node1FirebaseData, saveActivationToFirebase, fetchSprinklerHistory } from './services/aqiService';
+import { calculateAQI, getCategoryFromAQI, generateMockHistory, simulateNodeData, generateMockPredictions, simulateSprinklerImpact, subscribeToNode1, Node1FirebaseData, saveActivationToFirebase, fetchSprinklerHistory, calculatePM25FromAQI, pushSensorHistory } from './services/aqiService';
 import { shouldActivateSprinkler } from './services/controlService';
 import AQIMap from './components/AQIMap';
 import PredictionModule from './components/PredictionModule';
@@ -24,13 +24,9 @@ const App: React.FC = () => {
   const [node1LiveData, setNode1LiveData] = useState<Node1FirebaseData | null>(null);
   const [node1Connected, setNode1Connected] = useState(false);
   const [historyModal, setHistoryModal] = useState<boolean>(false);
-  // Genuine readings from ESP32 via Firebase, capped at 10
-  const [node1History, setNode1History] = useState<Array<{
-    timestamp: string; aqi: number; pm25: number; pm10: number;
-    humidity: number; temperature: number; relayStatus: string;
-  }>>([]);
   const [time, setTime] = useState(new Date());
   const manualTimersRef = useRef<{ [key: string]: NodeJS.Timeout }>({});
+  const prevHardwareActiveRef = useRef<boolean>(false);
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
@@ -45,43 +41,96 @@ const App: React.FC = () => {
       setNode1LiveData(data);
       setNode1Connected(true);
 
-      // Append genuine ESP32 reading to history (capped at 10)
-      const newReading = {
-        timestamp: new Date(data.timestamp * 1000).toISOString(),
-        aqi: data.aqi,
-        pm25: data.pm25,
-        pm10: parseFloat((data.pm25 * 1.6).toFixed(1)),
-        humidity: data.humidity,
-        temperature: data.temperature,
-        relayStatus: data.relayStatus
-      };
-      setNode1History(prev => {
-        const updated = [newReading, ...prev];
-        return updated.slice(0, 10); // max 10 entries
+      // GLOBAL SYNC: If Node 1 hardware is active, ensure portal state reflects it
+      setSprinklerStatus(prev => {
+        const isHardwareActive = !!data.sprinklerActive;
+        const hasPortalTriggeredActive = Object.keys(prev.activeNodes).length > 0;
+
+        return {
+          ...prev,
+          state: (isHardwareActive || hasPortalTriggeredActive) ? SprinklerState.ACTIVE : SprinklerState.INACTIVE
+        };
       });
 
+      // HARDWARE HISTORY TRACKING: Detect state transitions for Node 1
+      const isNowActive = !!data.sprinklerActive;
+      const wasActive = prevHardwareActiveRef.current;
+
+      if (isNowActive && !wasActive) {
+        // Hardware started spraying: Start keeping track for history
+        console.log('💧 [Hardware] Node 1 started spraying. Capturing start metadata...');
+        const currentLocs = locationsRef.current;
+        const node1 = currentLocs.find(l => l.id === 'node-1');
+        const aqiBefore = node1?.currentReading.aqi || data.aqi || 0;
+
+        activeSessionMetadata.current['node-1'] = {
+          startTime: Date.now(),
+          aqiBefore,
+          projectedDuration: 0 // Unknown for hardware triggers
+        };
+
+        setZoneLastTreated(prev => ({
+          ...prev,
+          ['node-1']: new Date()
+        }));
+      } else if (!isNowActive && wasActive) {
+        // Hardware stopped spraying: Finalize and log to history
+        console.log('💧 [Hardware] Node 1 stopped spraying. Finalizing history entry...');
+        finalizeActivation('node-1');
+      }
+
+      prevHardwareActiveRef.current = isNowActive;
+
+      // Update ref for background recorder
+      node1LiveDataRef.current = data;
+
+
+
       // Update Node-1 in locations state with live ESP32 data
-      setLocations(prev => prev.map(loc => {
-        if (loc.id === 'node-1') {
-          const pm25 = data.pm25 || 0;
-          const { aqi, category } = data.aqi > 0
-            ? { aqi: data.aqi, category: calculateAQI(pm25).category }
-            : calculateAQI(pm25);
-          return {
-            ...loc,
-            currentReading: {
-              ...loc.currentReading,
-              aqi,
-              pm25,
-              pm10: pm25 * 1.6,
-              humidity: data.humidity,
-              temperature: data.temperature,
-              timestamp: new Date(data.timestamp * 1000).toISOString()
-            }
-          };
+      setLocations(prev => {
+        // If locations haven't been initialized yet, we can't map. 
+        // But we should at least ensure Node-1 will be there.
+        if (prev.length === 0) {
+          console.warn('📡 [Firebase] Node1 update received before locations initialized.');
+          return prev;
         }
-        return loc;
-      }));
+
+        return prev.map(loc => {
+          if (loc.id === 'node-1') {
+            let aqi = Number(data.aqi) || 0;
+            let pm25 = Number(data.pm25) || 0;
+
+            // Ensure PM2.5 and AQI are always in sync for display
+            if (aqi > 0 && pm25 === 0) {
+              pm25 = calculatePM25FromAQI(aqi);
+            } else if (pm25 > 0 && aqi === 0) {
+              aqi = calculateAQI(pm25).aqi;
+            }
+
+            const category = getCategoryFromAQI(aqi);
+            // Firebase stores ms, don't multiply by 1000
+            const ts = Number(data.timestamp);
+            const timestamp = !isNaN(ts) ? new Date(ts).toISOString() : new Date().toISOString();
+
+            return {
+              ...loc,
+              currentReading: {
+                ...loc.currentReading,
+                aqi,
+                category,
+                pm25,
+                pm10: pm25 * 1.6,
+                humidity: Number(data.humidity) || 0,
+                temperature: Number(data.temperature) || 0,
+                sprinklerActive: !!data.sprinklerActive,
+                sprinklerStatus: data.sprinklerStatus || 'Ready',
+                timestamp
+              }
+            };
+          }
+          return loc;
+        });
+      });
     });
     return () => unsubscribe();
   }, []);
@@ -123,8 +172,7 @@ const App: React.FC = () => {
             console.log(`📍 Syncing ${loc.id} for startup: Using history AQI ${latestEntry.aqiAfter}`);
             nodeReading.aqi = latestEntry.aqiAfter;
             // Re-derive category for UI color consistency
-            const bp = NAQI_BREAKPOINTS.find(b => nodeReading.aqi >= b.minAQI && nodeReading.aqi <= b.maxAQI);
-            if (bp) nodeReading.category = bp.category;
+            nodeReading.category = getCategoryFromAQI(nodeReading.aqi);
           }
 
           return {
@@ -198,7 +246,7 @@ const App: React.FC = () => {
       ? meta.projectedDuration
       : parseFloat(actualDuration.toFixed(1));
 
-    const targetZone = locations.find(l => l.id === targetId);
+    const targetZone = locationsRef.current.find(l => l.id === targetId);
     if (!targetZone) return;
 
     const aqiBefore = meta.aqiBefore;
@@ -226,14 +274,14 @@ const App: React.FC = () => {
     setLocations(prev => prev.map(loc => {
       if (loc.id === targetId) {
         const newPM = loc.currentReading.pm25 * (aqiAfter / aqiBefore);
-        // Force AQI to match the history log exactly to avoid rounding discrepancies
-        const { category } = calculateAQI(newPM);
+        // Force Category to match the explicit aqiAfter value
+        const category = getCategoryFromAQI(aqiAfter);
         return {
           ...loc,
           currentReading: {
             ...loc.currentReading,
             pm25: newPM,
-            aqi: aqiAfter, // Explicitly use the logged AQI value
+            aqi: aqiAfter,
             category
           }
         };
@@ -402,6 +450,29 @@ const App: React.FC = () => {
     };
   }, [zoneLastTreated, sprinklerStatus.activeNodes, handleTriggerSprinkler]); // Minimal stable deps
 
+  // 🤖 BACKGROUND HISTORY RECORDER
+  // Periodically saves Node 1 live data to Firebase history so the AI Forecast has data
+  const node1LiveDataRef = useRef<Node1FirebaseData | null>(null);
+  useEffect(() => {
+    console.log('🤖 Starting 5-minute history recording loop...');
+    const recordPoint = () => {
+      const currentData = node1LiveDataRef.current;
+      if (currentData) {
+        pushSensorHistory('Node1', {
+          aqi: currentData.aqi,
+          humidity: currentData.humidity,
+          temperature: currentData.temperature,
+          timestamp: currentData.timestamp || Math.floor(Date.now() / 1000)
+        });
+      }
+    };
+
+    // Initial record and then every 5 minutes
+    recordPoint();
+    const interval = setInterval(recordPoint, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const getAqiInfo = (category: AQICategory) => NAQI_BREAKPOINTS.find(b => b.category === category);
 
   if (loading) return (
@@ -426,8 +497,7 @@ const App: React.FC = () => {
               </svg>
             </div>
             <div>
-              <h1 className="text-xl font-black text-slate-900 tracking-tighter uppercase leading-none">TEMP AQI Dashboard</h1>
-              <p className="text-[9px] text-blue-600 font-black uppercase tracking-widest mt-1">Strategic Urban Mitigation</p>
+              <h1 className="text-xl font-black text-slate-900 tracking-tighter uppercase leading-none">MistMinds</h1>
             </div>
           </div>
 
@@ -443,6 +513,13 @@ const App: React.FC = () => {
 
 
           <div className="flex items-center gap-6">
+            {/* Firebase Live Status Indicator */}
+            <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200 shadow-sm">
+              <div className={`h-1.5 w-1.5 rounded-full ${locations.find(l => l.id === 'node-1')?.currentReading.aqi ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                {locations.find(l => l.id === 'node-1')?.currentReading.aqi ? 'Node 1: Live' : 'Node 1: Waiting for Data'}
+              </span>
+            </div>
             <div className="text-right">
               <span className="text-[8px] font-black text-slate-400 uppercase block">Colony Average</span>
               <span className="text-xl font-black text-slate-900 tracking-tighter">{colonyAverageAQI} AQI</span>
@@ -458,7 +535,9 @@ const App: React.FC = () => {
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {locations.filter(l => l.type === 'TEMP_NODE').map(loc => {
-                const info = getAqiInfo(loc.currentReading.category);
+                const currentAqi = loc.currentReading.aqi;
+                const currentCategory = getCategoryFromAQI(currentAqi);
+                const info = getAqiInfo(currentCategory);
                 const lastTreated = zoneLastTreated[loc.id];
                 const minutesSince = lastTreated ? (new Date().getTime() - lastTreated.getTime()) / 60000 : 999;
                 const isRecentlyTreated = minutesSince < 60;
@@ -490,21 +569,27 @@ const App: React.FC = () => {
                     <div className="flex justify-between items-start mb-2">
                       <h4 className="text-[9px] font-black text-slate-500 line-clamp-1 uppercase tracking-tight">{loc.name}</h4>
                     </div>
-                    <div className="flex items-baseline gap-1 mb-2">
-                      <span className="text-2xl font-black text-slate-900">{loc.currentReading.aqi}</span>
-                      <span className="text-[10px] font-bold text-slate-400">AQI</span>
+                    <div className="text-2xl font-black text-slate-900 tracking-tighter mb-1 mt-auto">
+                      {currentAqi} <span className="text-[8px] font-black text-slate-300 uppercase">AQI</span>
                     </div>
+                    <div className={`text-[8px] font-black uppercase tracking-widest ${info?.textColor || 'text-slate-400'}`}>
+                      {currentCategory}
+                    </div>
+
                     {isNode1 && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setHistoryModal(true);
-                        }}
-                        className="text-[8px] font-black text-blue-500 uppercase tracking-widest hover:underline bg-transparent border-none p-0 cursor-pointer"
-                      >
-                        View History →
-                      </button>
+                      <div className="mt-3 pt-3 border-t border-slate-100">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Sprinkler</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`flex h-1.5 w-1.5 rounded-full ${loc.currentReading.sprinklerActive ? 'bg-green-500 animate-pulse' : 'bg-slate-300'}`}></span>
+                            <span className={`text-[9px] font-black uppercase ${loc.currentReading.sprinklerActive ? 'text-green-600' : 'text-slate-500'}`}>
+                              {loc.currentReading.sprinklerActive ? 'Active' : 'Off'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                     )}
+
                   </div>
                 );
               })}
@@ -520,6 +605,7 @@ const App: React.FC = () => {
               selectedId={selectedId}
               nodeName={selectedLocation?.name}
               onSetThreshold={(val) => setSprinklerStatus(p => ({ ...p, threshold: val }))}
+              isHardwareActive={selectedLocation?.currentReading?.sprinklerActive}
             />
 
             <AQIMap locations={locations} selectedId={selectedId} onSelectLocation={setSelectedId} clusters={{}} />
@@ -540,7 +626,7 @@ const App: React.FC = () => {
                         <h2 className="text-2xl font-black text-slate-900 leading-tight">{selectedLocation.name}</h2>
 
                       </div>
-                      <div className={`px-6 py-4 rounded-lg text-center ${getAqiInfo(selectedLocation.currentReading.category)?.color} text-white shadow-2xl`}>
+                      <div className={`px-6 py-4 rounded-lg text-center ${getAqiInfo(getCategoryFromAQI(selectedLocation.currentReading.aqi))?.color || 'bg-slate-400'} text-white shadow-2xl`}>
                         <div className="text-4xl font-black tracking-tighter">{selectedLocation.currentReading.aqi}</div>
                         <div className="text-[9px] font-black uppercase tracking-widest opacity-80 mt-1">AQI</div>
                       </div>
@@ -609,15 +695,15 @@ const App: React.FC = () => {
                           }`}>
                           <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Sprinkler Status</span>
                           <div className="flex items-center gap-2">
-                            <span className={`w-2.5 h-2.5 rounded-full ${sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]
+                            <span className={`w-2.5 h-2.5 rounded-full ${(selectedLocation.id === 'node-1' ? selectedLocation.currentReading.sprinklerActive : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]))
                               ? 'bg-green-500 animate-pulse'
                               : 'bg-slate-300'
                               }`} />
-                            <span className={`text-xl font-black ${sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]
+                            <span className={`text-xl font-black ${(selectedLocation.id === 'node-1' ? selectedLocation.currentReading.sprinklerActive : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]))
                               ? 'text-green-700'
                               : 'text-slate-500'
                               }`}>
-                              {sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id] ? 'Active' : 'Standby'}
+                              {selectedLocation.id === 'node-1' ? (selectedLocation.currentReading.sprinklerActive ? 'Active' : 'Standby') : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id] ? 'Active' : 'Standby')}
                             </span>
                           </div>
                         </div>
@@ -688,6 +774,7 @@ const App: React.FC = () => {
                 <PredictionModule
                   selectedId={selectedId}
                   nodeName={selectedLocation?.name}
+                  sprinklerActive={selectedLocation.id === 'node-1' ? selectedLocation.currentReading.sprinklerActive : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id])}
                 />
 
               </>
@@ -700,105 +787,6 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* ── Node-1 ESP32 History Modal (genuine Firebase readings only) ── */}
-      {historyModal && (() => {
-        const node1Loc = locations.find(l => l.id === 'node-1');
-        const modalInfo = node1Loc ? getAqiInfo(node1Loc.currentReading.category) : undefined;
-        return (
-          <div
-            className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-            style={{ background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(6px)' }}
-            onClick={() => setHistoryModal(false)}
-          >
-            <div
-              className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden"
-              onClick={e => e.stopPropagation()}
-            >
-              {/* Colour bar */}
-              <div className={`h-2 w-full ${modalInfo?.color ?? 'bg-blue-900'}`} />
-
-              {/* Header */}
-              <div className="flex items-center justify-between px-8 py-6 border-b border-slate-100">
-                <div>
-                  {/* 9. Rename Header */}
-                  <span className="text-[9px] font-black text-blue-600 uppercase tracking-widest block mb-1">Live SENSOR Readings — Node 1</span>
-                  <h2 className="text-xl font-black text-slate-900 tracking-tight">{node1Loc?.name ?? 'Sensor Node 1'}</h2>
-                </div>
-                <div className="flex items-center gap-4">
-                  {node1LiveData && (
-                    <div className={`px-4 py-2 rounded-lg text-white text-sm font-black ${modalInfo?.color ?? 'bg-blue-900'}`}>
-                      {node1LiveData.aqi} AQI
-                    </div>
-                  )}
-                  <button
-                    onClick={() => setHistoryModal(false)}
-                    className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 font-black text-lg transition-colors"
-                    aria-label="Close"
-                  >×</button>
-                </div>
-              </div>
-
-              {/* Table */}
-              <div className="p-8 overflow-y-auto" style={{ maxHeight: '65vh' }}>
-                {node1History.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-16 gap-3">
-                    <div className="w-8 h-8 border-4 border-blue-900 border-t-transparent rounded-full animate-spin" />
-                    <p className="text-slate-400 font-black uppercase text-xs">Waiting for ESP32 data…</p>
-                  </div>
-                ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b-2 border-slate-100">
-                        {/* 4. Rename Relay to Sprinkler */}
-                        {['Time', 'AQI', 'PM2.5', 'PM10', 'Humidity', 'Temp', 'Sprinkler'].map(h => (
-                          <th key={h} className="text-[8px] font-black text-slate-400 uppercase tracking-widest pb-3 text-left pr-3">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {node1History.map((r, i) => {
-                        const { aqi, category } = calculateAQI(r.pm25);
-                        const rInfo = getAqiInfo(category);
-                        const ts = new Date(r.timestamp);
-                        return (
-                          <tr key={i} className={`border-b border-slate-50 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
-                            <td className="py-3 pr-3">
-                              {/* 7. HH:MM only */}
-                              <span className="font-black text-slate-800 block">{ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
-                            </td>
-                            <td className="py-3 pr-3">
-                              <span className={`px-2 py-0.5 rounded text-xs font-black text-white ${rInfo?.color ?? 'bg-slate-400'}`}>{r.aqi}</span>
-                            </td>
-                            <td className="py-3 pr-3 font-black text-slate-700">{r.pm25.toFixed(1)}</td>
-                            <td className="py-3 pr-3 font-black text-slate-700">{r.pm10.toFixed(1)}</td>
-                            <td className="py-3 pr-3 font-black text-slate-700">{r.humidity.toFixed(0)}%</td>
-                            <td className="py-3 pr-3 font-black text-slate-700">{r.temperature.toFixed(1)}°C</td>
-                            <td className="py-3">
-                              <span className={`px-2 py-0.5 rounded text-[8px] font-black ${r.relayStatus === 'ON' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
-                                }`}>{r.relayStatus === 'ON' ? 'ACTIVE' : 'OFF'}</span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              <div className="px-8 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
-                {/* 8. Remove detailed count stats */}
-                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-
-                </span>
-                <button
-                  onClick={() => setHistoryModal(false)}
-                  className="px-5 py-2 bg-blue-900 text-white text-xs font-black rounded-lg hover:bg-blue-800 transition-colors uppercase tracking-widest"
-                >Close</button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 };
