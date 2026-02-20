@@ -1,83 +1,143 @@
-
-import React from 'react';
-import { PredictionReading } from '../types';
+import React, { useEffect, useState } from 'react';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, CartesianGrid } from 'recharts';
+import { fetchNode1History, getChartData, PredictionPoint } from '../services/predictionService';
 import { NAQI_BREAKPOINTS } from '../constants';
 
-interface PredictionModuleProps {
-    predictions: PredictionReading[];
-}
+const PredictionModule: React.FC = () => {
+    const [chartData, setChartData] = useState<PredictionPoint[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
 
-const PredictionModule: React.FC<PredictionModuleProps> = ({ predictions }) => {
-    const getAqiColor = (aqi: number) => {
-        return NAQI_BREAKPOINTS.find(b => aqi >= b.minAQI && aqi <= b.maxAQI)?.color || 'bg-slate-500';
+    const refreshPredictions = async () => {
+        setLoading(true);
+        try {
+            console.log('🔮 Fetching history for prediction...');
+            const history = await fetchNode1History();
+
+            if (history.length === 0) {
+                console.warn('⚠️ No history found for predictions');
+                setLoading(false);
+                return;
+            }
+
+            const data = getChartData(history);
+            setChartData(data);
+            setLastUpdate(new Date());
+        } catch (e) {
+            console.error("Prediction Error:", e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        refreshPredictions();
+        const interval = setInterval(refreshPredictions, 5 * 60 * 1000); // 5 mins
+        return () => clearInterval(interval);
+    }, []);
+
+    const CustomTooltip = ({ active, payload, label }: any) => {
+        if (active && payload && payload.length) {
+            const data = payload[0].payload;
+            const isForecast = data.type === 'forecast';
+            const val = data.aqi;
+            const category = NAQI_BREAKPOINTS.find(b => val >= b.minAQI && val <= b.maxAQI);
+
+            return (
+                <div className="bg-slate-900 text-white p-3 rounded-lg shadow-xl border border-slate-700">
+                    <p className="text-[10px] font-bold text-slate-400 mb-1">
+                        {new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })} {isForecast ? '(Forecast)' : '(Historical)'}
+                    </p>
+                    <div className="flex items-center gap-2">
+                        <span className="text-xl font-black">{val}</span>
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-black text-slate-900 ${category?.color || 'bg-slate-200'}`}>
+                            {category?.category || 'Unknown'}
+                        </span>
+                    </div>
+                </div>
+            );
+        }
+        return null;
+    };
+
+    const formatXAxis = (tickItem: string) => {
+        return new Date(tickItem).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
     };
 
     return (
-        <div className="bg-white rounded-lg p-6 border border-slate-200">
+        <div className="bg-white rounded-lg p-6 border border-slate-200 shadow-sm h-full">
             <div className="flex items-center justify-between mb-6">
                 <div>
-                    <h3 className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-1">Forecast Module</h3>
-                    <h2 className="text-xl font-black text-slate-900">30-Minute Forecast</h2>
+                    <h3 className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-1">AI Forecast Model</h3>
+                    <h2 className="text-xl font-black text-slate-900">30-Minute Trajectory</h2>
                 </div>
-                <div className="px-3 py-1 bg-blue-50 text-blue-700 rounded text-[10px] font-black uppercase tracking-widest">
-                    ±20% Confidence
+                <div className="text-right">
+                    <div className="flex items-center gap-2 justify-end mb-1">
+                        <span className="w-2.5 h-0.5 bg-blue-500"></span>
+                        <span className="text-[9px] font-bold text-slate-500 uppercase">Trend</span>
+                        <span className="w-2.5 h-0.5 bg-purple-500 border-dashed border-t border-purple-500 ml-2"></span>
+                        <span className="text-[9px] font-bold text-slate-500 uppercase">Prediction</span>
+                    </div>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-6">
-                {/* Simplified Forecast Graph (Visual Representation) */}
-                <div className="h-48 flex items-end gap-1 px-2 border-b border-slate-100">
-                    {predictions.map((p, idx) => {
-                        const height = (p.aqi / 500) * 100;
-                        return (
-                            <div
-                                key={idx}
-                                className={`flex-1 ${getAqiColor(p.aqi)} rounded-t-sm transition-all hover:opacity-80 relative group`}
-                                style={{ height: `${height}%` }}
-                            >
-                                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 bg-slate-900 text-white text-[8px] p-1 rounded whitespace-nowrap z-10 transition-opacity">
-                                    {new Date(p.timestamp).getHours()}:00 - AQI {p.aqi}
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
+            <div className="h-64 w-full">
+                {loading && chartData.length === 0 ? (
+                    <div className="h-full flex items-center justify-center text-slate-400 text-xs font-bold animate-pulse">
+                        Calculating Regression Model...
+                    </div>
+                ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                            <XAxis
+                                dataKey="timestamp"
+                                tickFormatter={formatXAxis}
+                                tick={{ fontSize: 9, fontWeight: 700, fill: '#94a3b8' }}
+                                tickLine={false}
+                                axisLine={false}
+                                interval="preserveStartEnd"
+                                minTickGap={30}
+                            />
+                            <YAxis
+                                tick={{ fontSize: 9, fontWeight: 700, fill: '#94a3b8' }}
+                                tickLine={false}
+                                axisLine={false}
+                                domain={[0, 500]}
+                            />
+                            <Tooltip content={<CustomTooltip />} />
 
-                <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest px-2">
-                    <span>{new Date(predictions[0]?.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                    <span>Next 30 Minutes</span>
-                    <span>{new Date(predictions[predictions.length - 1]?.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                </div>
+                            {/* Historical Line */}
+                            <Line
+                                type="monotone"
+                                dataKey="aqi"
+                                data={chartData.filter(d => d.type === 'historical')}
+                                stroke="#3b82f6"
+                                strokeWidth={3}
+                                dot={false}
+                                activeDot={{ r: 4, strokeWidth: 0 }}
+                                isAnimationActive={false}
+                            />
 
-                {/* Hourly Table */}
-                <div className="mt-4 overflow-hidden rounded-lg border border-slate-100">
-                    <table className="w-full text-left">
-                        <thead className="bg-slate-50 border-b border-slate-100">
-                            <tr>
-                                <th className="px-4 py-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">Time</th>
-                                <th className="px-4 py-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">AQI</th>
-                                <th className="px-4 py-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">Category</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                            {predictions.map((p, idx) => (
-                                <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                    <td className="px-4 py-3 text-xs font-bold text-slate-700">
-                                        {new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                    </td>
-                                    <td className="px-4 py-3 text-sm font-black text-slate-900">
-                                        {p.aqi}
-                                    </td>
-                                    <td className="px-4 py-3">
-                                        <span className={`text-[10px] px-2 py-0.5 rounded font-black text-white ${getAqiColor(p.aqi)}`}>
-                                            {p.category}
-                                        </span>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                            {/* Forecast Line */}
+                            <Line
+                                type="monotone"
+                                dataKey="aqi"
+                                data={chartData.filter(d => d.type === 'forecast' || d === chartData.filter(x => x.type === 'historical').pop())}
+                                stroke="#a855f7"
+                                strokeWidth={3}
+                                strokeDasharray="5 5"
+                                dot={false}
+                                activeDot={{ r: 4, strokeWidth: 0 }}
+                                isAnimationActive={false}
+                            />
+                        </LineChart>
+                    </ResponsiveContainer>
+                )}
+            </div>
+            <div className="mt-4 flex justify-between items-center text-[9px] font-black text-slate-400 uppercase tracking-widest border-t border-slate-50 pt-4">
+                <span>Updated: {lastUpdate.toLocaleTimeString()}</span>
+                <span>Linear Regression (Last 60m)</span>
             </div>
         </div>
     );

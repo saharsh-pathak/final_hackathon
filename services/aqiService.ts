@@ -2,7 +2,17 @@
 import { AQICategory, Reading, VerificationData, LocationData, ClusterData, ClusterConfidence, ConfidenceTier, PredictionReading } from '../types';
 import { NAQI_BREAKPOINTS } from '../constants';
 import { db } from './firebaseConfig';
-import { ref, onValue, off } from 'firebase/database';
+import { ref, onValue, off, push, get, query, limitToLast, orderByChild } from 'firebase/database';
+
+export interface SprinklerHistoryEntry {
+  timestamp: string;
+  duration: number;
+  aqiBefore: number;
+  aqiAfter: number;
+  zoneId: string;
+  affectedZones: string[];
+  zoneCount: number;
+}
 
 export interface Node1FirebaseData {
   aqi: number;
@@ -237,5 +247,36 @@ export const simulateSprinklerImpact = (currentAQI: number): number => {
   // Simulate 15-30% reduction as per PRD
   const reductionFactor = 0.15 + Math.random() * 0.15;
   return Math.max(10, Math.round(currentAQI * (1 - reductionFactor)));
+};
+
+export const saveActivationToFirebase = async (entry: SprinklerHistoryEntry) => {
+  try {
+    const historyRef = ref(db, 'sprinkler_history');
+    await push(historyRef, entry);
+    console.log('✅ Activation saved to Firebase:', entry);
+  } catch (error) {
+    console.error('❌ Error saving to Firebase:', error);
+  }
+};
+
+export const fetchSprinklerHistory = async (): Promise<SprinklerHistoryEntry[]> => {
+  try {
+    const historyRef = ref(db, 'sprinkler_history');
+    const recentQuery = query(historyRef, limitToLast(50));
+    const snapshot = await get(recentQuery);
+
+    if (!snapshot.exists()) return [];
+
+    const history: SprinklerHistoryEntry[] = [];
+    snapshot.forEach((child) => {
+      history.push(child.val() as SprinklerHistoryEntry);
+    });
+
+    // Return reversed so newest is first in the UI
+    return history.reverse();
+  } catch (error) {
+    console.error('❌ Error fetching history:', error);
+    return [];
+  }
 };
 

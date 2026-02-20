@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { LocationData, AQICategory, SprinklerStatus, SprinklerState } from './types';
 import { TEMP_AQI_LOCATIONS, NAQI_BREAKPOINTS, OFFICIAL_STATION_DATA, MAP_CENTER } from './constants';
-import { calculateAQI, generateMockHistory, simulateNodeData, generateMockPredictions, simulateSprinklerImpact, subscribeToNode1, Node1FirebaseData } from './services/aqiService';
+import { calculateAQI, generateMockHistory, simulateNodeData, generateMockPredictions, simulateSprinklerImpact, subscribeToNode1, Node1FirebaseData, saveActivationToFirebase, fetchSprinklerHistory } from './services/aqiService';
 import AQIMap from './components/AQIMap';
 import PredictionModule from './components/PredictionModule';
 import SprinklerControl from './components/SprinklerControl';
@@ -95,27 +95,43 @@ const App: React.FC = () => {
         // as soon as the onValue listener fires (typically within ~500ms)
         const node1Base = { pm25: 85, pm10: 136, ...calculateAQI(85) };
 
-        // Initialize Official Station (Patparganj) - Simulate based on real city average if API available
-        // Here we just use the constant but could fetch real data too
+        // Initialize Official Station
         const offStation = { ...OFFICIAL_STATION_DATA };
         offStation.currentReading.timestamp = new Date().toISOString();
         setOfficialStation(offStation);
 
+        // 1. Fetch persistent history from Firebase FIRST
+        const realHistory = await fetchSprinklerHistory();
+        setSprinklerHistory(realHistory);
+
+        // 2. Initialize Locations with history-aware defaults
         const data: LocationData[] = TEMP_AQI_LOCATIONS.map((loc, idx) => {
           let nodeReading;
+          const node1Base = { pm25: 85, pm10: 136, ...calculateAQI(85) };
+
           if (idx === 0) {
             nodeReading = node1Base;
           } else {
-            // Simulate Nodes 2, 3, 4 based on Node 1 with strategic spatial variance
-            const offsets = [0, 12, 45, -8]; // Real-world variance simulation
+            // Simulate Nodes 2, 3, 4 with strategic variance
+            const offsets = [0, 12, 45, -8];
             nodeReading = simulateNodeData(node1Base.pm25, offsets[idx]);
+          }
+
+          // RECONCILE WITH HISTORY: If this node was recently treated, use history value as starting point
+          const latestEntry = realHistory.find(h => h.zoneId === loc.id);
+          if (latestEntry) {
+            console.log(`📍 Syncing ${loc.id} for startup: Using history AQI ${latestEntry.aqiAfter}`);
+            nodeReading.aqi = latestEntry.aqiAfter;
+            // Re-derive category for UI color consistency
+            const bp = NAQI_BREAKPOINTS.find(b => nodeReading.aqi >= b.minAQI && nodeReading.aqi <= b.maxAQI);
+            if (bp) nodeReading.category = bp.category;
           }
 
           return {
             ...loc,
             currentReading: {
               timestamp: new Date().toISOString(),
-              temperature: 28 + Math.random() * 4, // Simulate temp for others
+              temperature: 28 + Math.random() * 4,
               ...nodeReading
             },
             history: generateMockHistory(nodeReading.pm25),
@@ -126,71 +142,9 @@ const App: React.FC = () => {
         setLocations(data);
         if (data.length > 0) setSelectedId(data[0].id);
 
-        // Generate realistic mock history that matches current sensor readings
-        // Current values: Node1=139, Node2=154, Node3=198, Node4=131
-        const now = new Date();
-        const mockHistory = [
-          {
-            timestamp: new Date(now.getTime() - 30 * 60000).toISOString(), // 30 min ago
-            duration: 3.2,
-            aqiBefore: 238,
-            aqiAfter: 198, // Matches Node 3 current reading
-            affectedZones: ['NH24 Highway Exit'],
-            zoneCount: 1,
-            zoneId: data[2]?.id // Node 3
-          },
-          {
-            timestamp: new Date(now.getTime() - 55 * 60000).toISOString(), // 55 min ago
-            duration: 2.8,
-            aqiBefore: 186,
-            aqiAfter: 154, // Matches Node 2 current reading
-            affectedZones: ['Phase 2 Market Complex'],
-            zoneCount: 1,
-            zoneId: data[1]?.id // Node 2
-          },
-          {
-            timestamp: new Date(now.getTime() - 80 * 60000).toISOString(), // 1h 20m ago
-            duration: 3.5,
-            aqiBefore: 167,
-            aqiAfter: 139, // Matches Node 1 current reading
-            affectedZones: ['Phase 1 Market'],
-            zoneCount: 1,
-            zoneId: data[0]?.id // Node 1
-          },
-          {
-            timestamp: new Date(now.getTime() - 105 * 60000).toISOString(), // 1h 45m ago
-            duration: 3.0,
-            aqiBefore: 158,
-            aqiAfter: 131, // Matches Node 4 current reading
-            affectedZones: ['Sanjay Vihar'],
-            zoneCount: 1,
-            zoneId: data[3]?.id // Node 4
-          },
-          {
-            timestamp: new Date(now.getTime() - 135 * 60000).toISOString(), // 2h 15m ago
-            duration: 3.1,
-            aqiBefore: 285,
-            aqiAfter: 238,
-            affectedZones: ['NH24 Highway Exit'],
-            zoneCount: 1,
-            zoneId: data[2]?.id
-          },
-          {
-            timestamp: new Date(now.getTime() - 160 * 60000).toISOString(), // 2h 40m ago
-            duration: 2.9,
-            aqiBefore: 223,
-            aqiAfter: 186,
-            affectedZones: ['Phase 2 Market Complex'],
-            zoneCount: 1,
-            zoneId: data[1]?.id
-          }
-        ];
-
-        setSprinklerHistory(mockHistory);
-
-        // Initialize zone last treated times
+        // 3. Initialize zone last treated times from real history
         const initialZoneTimes: { [zoneId: string]: Date } = {};
-        mockHistory.forEach(entry => {
+        realHistory.forEach(entry => {
           if (entry.zoneId && (!initialZoneTimes[entry.zoneId] || new Date(entry.timestamp) > initialZoneTimes[entry.zoneId])) {
             initialZoneTimes[entry.zoneId] = new Date(entry.timestamp);
           }
@@ -224,25 +178,105 @@ const App: React.FC = () => {
     return Math.round(sum / validReadings.length);
   }, [locations]);
 
-  const handleStopSprinkler = (targetId?: string) => {
-    if (!targetId) return; // Need ID for independent control
+  const activeSessionMetadata = useRef<{ [key: string]: { startTime: number, aqiBefore: number, projectedDuration: number } }>({});
 
+  const finalizeActivation = (targetId: string) => {
+    const meta = activeSessionMetadata.current[targetId];
+    if (!meta) return;
+
+    // Clear timer if it's still running (e.g. forced finalization)
     if (manualTimersRef.current[targetId]) {
       clearTimeout(manualTimersRef.current[targetId]);
       delete manualTimersRef.current[targetId];
     }
 
+    const now = Date.now();
+    // Actual duration in minutes (min 0.1)
+    const actualDuration = Math.max(0.1, (now - meta.startTime) / 60000);
+    // If it ran full duration (approx), use projected. Else use actual.
+    const durationToLog = Math.abs(actualDuration * 60000 - meta.projectedDuration * 60000) < 1000
+      ? meta.projectedDuration
+      : parseFloat(actualDuration.toFixed(1));
+
+    const targetZone = locations.find(l => l.id === targetId);
+    if (!targetZone) return;
+
+    const aqiBefore = meta.aqiBefore;
+    // Simulate impact based on duration fraction
+    const completionRatio = Math.min(1, actualDuration / meta.projectedDuration);
+    const aqiAfter = Math.round(aqiBefore - (aqiBefore * 0.25 * completionRatio)); // Up to 25% reduction
+
+    // 1. Log History
+    const newEntry = {
+      timestamp: new Date(meta.startTime).toISOString(),
+      duration: durationToLog,
+      aqiBefore,
+      aqiAfter,
+      affectedZones: [targetZone.name],
+      zoneCount: 1,
+      zoneId: targetZone.id
+    };
+
+    // Save to Firebase for persistence
+    saveActivationToFirebase(newEntry);
+
+    setSprinklerHistory(prev => [newEntry, ...prev]);
+
+    // 2. Update Location Data (AQI Reduction)
+    setLocations(prev => prev.map(loc => {
+      if (loc.id === targetId) {
+        const newPM = loc.currentReading.pm25 * (aqiAfter / aqiBefore);
+        // Force AQI to match the history log exactly to avoid rounding discrepancies
+        const { category } = calculateAQI(newPM);
+        return {
+          ...loc,
+          currentReading: {
+            ...loc.currentReading,
+            pm25: newPM,
+            aqi: aqiAfter, // Explicitly use the logged AQI value
+            category
+          }
+        };
+      }
+      return loc;
+    }));
+
+    // 3. Update Status (Inactive)
     setSprinklerStatus(prev => {
       const newActive = { ...prev.activeNodes };
       delete newActive[targetId];
-      // If no active nodes, set state to INACTIVE (optional, but good for global status)
-      const isActive = Object.keys(newActive).length > 0;
       return {
         ...prev,
-        state: isActive ? SprinklerState.ACTIVE : SprinklerState.INACTIVE,
+        state: Object.keys(newActive).length > 0 ? SprinklerState.ACTIVE : SprinklerState.INACTIVE,
+        // Only update global lastActivation if this was the latest one
+        lastActivation: new Date().toISOString(),
         activeNodes: newActive
       };
     });
+
+    // Cleanup metadata
+    delete activeSessionMetadata.current[targetId];
+
+    console.log(`✅ Activation finalized for ${targetZone.name}. Duration: ${durationToLog}m. AQI: ${aqiBefore} -> ${aqiAfter}`);
+  };
+
+  const handleStopSprinkler = (targetId?: string) => {
+    if (!targetId) return;
+    // If currently running, finalize it to log history & stop
+    if (activeSessionMetadata.current[targetId]) {
+      finalizeActivation(targetId);
+    } else {
+      // Fallback cleanup if no metadata exists (shouldn't happen often)
+      setSprinklerStatus(prev => {
+        const newActive = { ...prev.activeNodes };
+        delete newActive[targetId];
+        return {
+          ...prev,
+          state: Object.keys(newActive).length > 0 ? SprinklerState.ACTIVE : SprinklerState.INACTIVE,
+          activeNodes: newActive
+        };
+      });
+    }
   };
 
   const handleToggleMode = (targetId: string, isAuto: boolean) => {
@@ -255,174 +289,102 @@ const App: React.FC = () => {
 
   const handleTriggerSprinkler = (manualTargetId?: string) => {
     // --- MANUAL MODE LOGIC ---
-    if (!sprinklerStatus.autoMode || manualTargetId) {
-      // If manualTargetId is provided, treating as manual trigger (even if in Auto mode? User said "be it manually or in Automatic mode").
-      // But UI only shows buttons in Manual Mode.
-      if (!manualTargetId) return;
-
+    if (manualTargetId) {
       const targetZone = locations.find(l => l.id === manualTargetId);
       if (!targetZone) return;
-
-      // Check if already active
       if (sprinklerStatus.activeNodes[manualTargetId]) return;
 
       const aqiBefore = targetZone.currentReading.aqi;
-      const roundedDuration = 10;
+      const roundedDuration = 10; // Default manual duration
 
+      // 1. Set Status Active
       setSprinklerStatus(prev => ({
         ...prev,
-        state: SprinklerState.ACTIVE, // At least one is active
+        state: SprinklerState.ACTIVE,
         activeNodes: { ...prev.activeNodes, [manualTargetId]: Date.now() }
       }));
 
-      console.log(`💧 MANUALLY Activating sprinkler for ${targetZone.name}`);
+      // 2. Metadata for history
+      activeSessionMetadata.current[manualTargetId] = {
+        startTime: Date.now(),
+        aqiBefore,
+        projectedDuration: roundedDuration
+      };
 
+      // 3. Update Last Treated IMMEDIATELY
       setZoneLastTreated(prev => ({
         ...prev,
         [manualTargetId]: new Date()
       }));
 
-      // Independent Timeout
+      console.log(`💧 MANUALLY Activating sprinkler for ${targetZone.name}`);
+
+      // 4. Timer
       const timer = setTimeout(() => {
-        handleStopSprinkler(manualTargetId);
-
-        // History Log logic...
-        const aqiAfter = simulateSprinklerImpact(aqiBefore);
-        const newEntry = {
-          timestamp: new Date().toISOString(),
-          duration: roundedDuration,
-          aqiBefore,
-          aqiAfter,
-          affectedZones: [targetZone.name],
-          zoneCount: 1,
-          zoneId: targetZone.id
-        };
-        setSprinklerHistory(prev => [newEntry, ...prev]);
-
-        // Update AQI
-        setLocations(prev => prev.map(loc => {
-          if (loc.id === targetZone.id) {
-            const newPM = loc.currentReading.pm25 * (aqiAfter / aqiBefore);
-            const { aqi, category } = calculateAQI(newPM);
-            return {
-              ...loc,
-              currentReading: { ...loc.currentReading, pm25: newPM, aqi, category }
-            };
-          }
-          return loc;
-        }));
-
-        console.log(`✅ Manual treatment complete for ${targetZone.name}`);
+        finalizeActivation(manualTargetId);
       }, 10 * 60 * 1000); // 10 mins
 
       manualTimersRef.current[manualTargetId] = timer;
       return;
     }
 
-    // --- AUTOMATIC MODE LOGIC (Existing) ---
-    // --- AUTOMATIC MODE LOGIC (Existing) ---
-    // Removed global ACTIVE check to allow simultaneous independent triggers
-    // if (sprinklerStatus.state === SprinklerState.ACTIVE) return;
-
-    // Select the zone with highest AQI...
+    // --- AUTOMATIC MODE LOGIC ---
     const COOLDOWN_MINUTES = 20;
     const now = new Date();
 
     const availableZones = locations
       .filter(loc => loc.type === 'TEMP_NODE')
       .filter(loc => {
-        // 1. Is Node in Auto Mode? (Default true)
         const isAuto = sprinklerStatus.autoMode[loc.id] ?? true;
         if (!isAuto) return false;
-
-        // 2. Is Node Currently Active?
         if (sprinklerStatus.activeNodes[loc.id]) return false;
-
-        // 3. Cooldown Check
         const lastTreated = zoneLastTreated[loc.id];
         if (!lastTreated) return true;
         const minutesSince = (now.getTime() - lastTreated.getTime()) / 60000;
         return minutesSince >= COOLDOWN_MINUTES;
       })
-      .sort((a, b) => b.currentReading.aqi - a.currentReading.aqi); // Highest AQI first
+      .sort((a, b) => b.currentReading.aqi - a.currentReading.aqi);
 
-    if (availableZones.length === 0) {
-      console.log('⏳ All zones on cooldown.');
-      return;
-    }
+    if (availableZones.length === 0) return;
 
     const targetZone = availableZones[0];
     const aqiBefore = targetZone.currentReading.aqi;
 
-    // Dynamic Duration Algorithm: Scales with AQI (Pollution) and Inversely with Humidity
+    // Dynamic Duration
     const baseDuration = 3.0;
     const aqiFactor = aqiBefore / 150;
     const humidityFactor = (100 - (targetZone.currentReading.humidity || colonyAverageHumidity)) / 100;
     const calculatedDuration = Math.min(Math.max(baseDuration * aqiFactor * humidityFactor, 2), 10);
     const roundedDuration = Math.round(calculatedDuration * 10) / 10;
 
+    // 1. Set Status Active
     setSprinklerStatus(prev => ({
       ...prev,
       state: SprinklerState.ACTIVE,
       activeNodes: { ...prev.activeNodes, [targetZone.id]: Date.now() }
     }));
 
+    // 2. Metadata
+    activeSessionMetadata.current[targetZone.id] = {
+      startTime: Date.now(),
+      aqiBefore,
+      projectedDuration: roundedDuration
+    };
+
+    // 3. Update Last Treated IMMEDIATELY
+    setZoneLastTreated(prev => ({
+      ...prev,
+      [targetZone.id]: new Date()
+    }));
+
     console.log(`💧 Activating sprinkler for ${targetZone.name} (AQI: ${aqiBefore})`);
 
+    // 4. Timer
+    // For simulation, we speed up the outcome (5s for full duration)
+    // But in history log, we want to show the 'roundedDuration' (e.g. 3.5 min)
     const timer = setTimeout(() => {
-      const aqiAfter = simulateSprinklerImpact(aqiBefore);
-
-      const newEntry = {
-        timestamp: new Date().toISOString(),
-        duration: roundedDuration,
-        aqiBefore,
-        aqiAfter,
-        affectedZones: [targetZone.name],
-        zoneCount: 1,
-        zoneId: targetZone.id
-      };
-
-      setSprinklerHistory(prev => [newEntry, ...prev]);
-
-      // Stop logic matching handleStopSprinkler but with specific history/AQI updates
-      setSprinklerStatus(prev => {
-        const newActive = { ...prev.activeNodes };
-        delete newActive[targetZone.id];
-        return {
-          ...prev,
-          state: Object.keys(newActive).length > 0 ? SprinklerState.ACTIVE : SprinklerState.INACTIVE,
-          lastActivation: new Date().toISOString(),
-          activeNodes: newActive
-        };
-      });
-
-      // Clean up timer ref if it finished naturally
-      if (manualTimersRef.current[targetZone.id]) {
-        delete manualTimersRef.current[targetZone.id];
-      }
-
-      // Update only the treated zone's AQI
-      setLocations(prev => prev.map(loc => {
-        if (loc.id === targetZone.id) {
-          const newPM = loc.currentReading.pm25 * (aqiAfter / aqiBefore);
-          const { aqi, category } = calculateAQI(newPM);
-          return {
-            ...loc,
-            currentReading: { ...loc.currentReading, pm25: newPM, aqi, category }
-          };
-        }
-        return loc;
-      }));
-
-      // Update zone last treated timestamp
-      setZoneLastTreated(prev => ({
-        ...prev,
-        [targetZone.id]: new Date()
-      }));
-
-      console.log(`✅ ${targetZone.name} treated: ${aqiBefore} → ${aqiAfter} AQI`);
-    }, 5000 * (roundedDuration / 3)); // Scale simulation time or keep fixed? Keeping fixed 5000 for now or use duration?
-    // Original was 5000. I'll keep 5000 for simulation speed.
+      finalizeActivation(targetZone.id);
+    }, 5000 * (roundedDuration / 3));
 
     manualTimersRef.current[targetZone.id] = timer;
   };
@@ -767,7 +729,9 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                <PredictionModule predictions={selectedLocation.predictions} />
+
+                <PredictionModule />
+
               </>
             ) : (
               <div className="h-[500px] flex items-center justify-center p-12 bg-white rounded-lg border-4 border-dashed border-slate-100 text-slate-300 font-black text-center text-xl uppercase tracking-tighter">
