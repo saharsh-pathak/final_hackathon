@@ -227,11 +227,28 @@ export const generateMockPredictions = (currentPM: number): PredictionReading[] 
   return predictions;
 };
 
-export const simulateNodeData = (node1PM: number, offset: number): { pm25: number, pm10: number, humidity: number, aqi: number, category: AQICategory } => {
-  // Simulate nearby node values with slight variation and offset
-  const variation = (Math.random() - 0.5) * 10;
-  const pm25 = Math.max(5, node1PM + offset + variation);
-  const humidity = 40 + Math.random() * 20; // Simulated humidity
+export const simulateNodeData = (nodeIndex: number): { pm25: number, pm10: number, humidity: number, aqi: number, category: AQICategory } => {
+  let pm25, humidity;
+
+  // Specific Test Scenarios as requested by User:
+  if (nodeIndex === 2) {
+    // Node 2: WILL be activated (AQI > 200, Humidity < 80)
+    pm25 = 160; // AQI ~ 211
+    humidity = 65;
+  } else if (nodeIndex === 3) {
+    // Node 3: NO activation (meets AQI, but fails HUMIDITY > 80)
+    pm25 = 170; // AQI ~ 220
+    humidity = 85;
+  } else if (nodeIndex === 4) {
+    // Node 4: NO activation (fails AQI < 200)
+    pm25 = 100; // AQI ~ 174
+    humidity = 55;
+  } else {
+    // Fallback for any other nodes
+    pm25 = 85 + Math.random() * 20;
+    humidity = 45 + Math.random() * 10;
+  }
+
   const { aqi, category } = calculateAQI(pm25);
 
   return {

@@ -17,18 +17,18 @@ export interface PredictionPoint {
 /**
  * Fetches the last 50 entries from history/Node1
  */
-export const fetchNode1History = async (): Promise<DataPoint[]> => {
+export const fetchNodeHistory = async (nodeId: string): Promise<DataPoint[]> => {
     try {
-        const historyRef = ref(db, 'history/Node1');
+        const historyRef = ref(db, `history/${nodeId}`);
         const recentHistoryQuery = query(historyRef, orderByChild('timestamp'), limitToLast(50));
         const snapshot = await get(recentHistoryQuery);
 
         if (!snapshot.exists()) {
-            console.warn("⚠️ fetchNode1History: No data at history/Node1");
+            console.warn(`⚠️ fetchNodeHistory: No data at history/${nodeId}`);
             return [];
         }
 
-        console.log(`✅ fetchNode1History: Found ${snapshot.size} entries`);
+        console.log(`✅ fetchNodeHistory [${nodeId}]: Found ${snapshot.size} entries`);
 
         const data: DataPoint[] = [];
         snapshot.forEach((child) => {
@@ -45,7 +45,7 @@ export const fetchNode1History = async (): Promise<DataPoint[]> => {
 
         return data;
     } catch (error) {
-        console.error("Error fetching Node 1 history:", error);
+        console.error(`Error fetching ${nodeId} history:`, error);
         return [];
     }
 };

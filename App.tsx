@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { LocationData, AQICategory, SprinklerStatus, SprinklerState } from './types';
 import { TEMP_AQI_LOCATIONS, NAQI_BREAKPOINTS, OFFICIAL_STATION_DATA, MAP_CENTER } from './constants';
 import { calculateAQI, generateMockHistory, simulateNodeData, generateMockPredictions, simulateSprinklerImpact, subscribeToNode1, Node1FirebaseData, saveActivationToFirebase, fetchSprinklerHistory } from './services/aqiService';
+import { shouldActivateSprinkler } from './services/controlService';
 import AQIMap from './components/AQIMap';
 import PredictionModule from './components/PredictionModule';
 import SprinklerControl from './components/SprinklerControl';
@@ -112,9 +113,8 @@ const App: React.FC = () => {
           if (idx === 0) {
             nodeReading = node1Base;
           } else {
-            // Simulate Nodes 2, 3, 4 with strategic variance
-            const offsets = [0, 12, 45, -8];
-            nodeReading = simulateNodeData(node1Base.pm25, offsets[idx]);
+            // Simulate Nodes 2, 3, 4 as per User requested scenarios
+            nodeReading = simulateNodeData(idx + 1);
           }
 
           // RECONCILE WITH HISTORY: If this node was recently treated, use history value as starting point
@@ -288,84 +288,34 @@ const App: React.FC = () => {
   };
 
   const handleTriggerSprinkler = (manualTargetId?: string) => {
-    // --- MANUAL MODE LOGIC ---
-    if (manualTargetId) {
-      const targetZone = locations.find(l => l.id === manualTargetId);
-      if (!targetZone) return;
-      if (sprinklerStatus.activeNodes[manualTargetId]) return;
+    // If no target ID provided (shouldn't happen with new logic but for safety)
+    if (!manualTargetId) return;
 
-      const aqiBefore = targetZone.currentReading.aqi;
-      const roundedDuration = 10; // Default manual duration
+    const targetZone = locations.find(l => l.id === manualTargetId);
+    if (!targetZone) return;
 
-      // 1. Set Status Active
-      setSprinklerStatus(prev => ({
-        ...prev,
-        state: SprinklerState.ACTIVE,
-        activeNodes: { ...prev.activeNodes, [manualTargetId]: Date.now() }
-      }));
+    // Check if already active
+    if (sprinklerStatus.activeNodes[manualTargetId]) return;
 
-      // 2. Metadata for history
-      activeSessionMetadata.current[manualTargetId] = {
-        startTime: Date.now(),
-        aqiBefore,
-        projectedDuration: roundedDuration
-      };
-
-      // 3. Update Last Treated IMMEDIATELY
-      setZoneLastTreated(prev => ({
-        ...prev,
-        [manualTargetId]: new Date()
-      }));
-
-      console.log(`💧 MANUALLY Activating sprinkler for ${targetZone.name}`);
-
-      // 4. Timer
-      const timer = setTimeout(() => {
-        finalizeActivation(manualTargetId);
-      }, 10 * 60 * 1000); // 10 mins
-
-      manualTimersRef.current[manualTargetId] = timer;
-      return;
-    }
-
-    // --- AUTOMATIC MODE LOGIC ---
-    const COOLDOWN_MINUTES = 20;
-    const now = new Date();
-
-    const availableZones = locations
-      .filter(loc => loc.type === 'TEMP_NODE')
-      .filter(loc => {
-        const isAuto = sprinklerStatus.autoMode[loc.id] ?? true;
-        if (!isAuto) return false;
-        if (sprinklerStatus.activeNodes[loc.id]) return false;
-        const lastTreated = zoneLastTreated[loc.id];
-        if (!lastTreated) return true;
-        const minutesSince = (now.getTime() - lastTreated.getTime()) / 60000;
-        return minutesSince >= COOLDOWN_MINUTES;
-      })
-      .sort((a, b) => b.currentReading.aqi - a.currentReading.aqi);
-
-    if (availableZones.length === 0) return;
-
-    const targetZone = availableZones[0];
     const aqiBefore = targetZone.currentReading.aqi;
+    const humidity = targetZone.currentReading.humidity || colonyAverageHumidity;
 
-    // Dynamic Duration
+    // Dynamic Duration Algorithm: Scales with AQI (Pollution) and Inversely with Humidity
     const baseDuration = 3.0;
     const aqiFactor = aqiBefore / 150;
-    const humidityFactor = (100 - (targetZone.currentReading.humidity || colonyAverageHumidity)) / 100;
-    const calculatedDuration = Math.min(Math.max(baseDuration * aqiFactor * humidityFactor, 2), 10);
+    const humFactor = (100 - humidity) / 100;
+    const calculatedDuration = Math.min(Math.max(baseDuration * aqiFactor * humFactor, 2), 10);
     const roundedDuration = Math.round(calculatedDuration * 10) / 10;
 
     // 1. Set Status Active
     setSprinklerStatus(prev => ({
       ...prev,
       state: SprinklerState.ACTIVE,
-      activeNodes: { ...prev.activeNodes, [targetZone.id]: Date.now() }
+      activeNodes: { ...prev.activeNodes, [manualTargetId]: Date.now() }
     }));
 
-    // 2. Metadata
-    activeSessionMetadata.current[targetZone.id] = {
+    // 2. Metadata for history
+    activeSessionMetadata.current[manualTargetId] = {
       startTime: Date.now(),
       aqiBefore,
       projectedDuration: roundedDuration
@@ -374,19 +324,19 @@ const App: React.FC = () => {
     // 3. Update Last Treated IMMEDIATELY
     setZoneLastTreated(prev => ({
       ...prev,
-      [targetZone.id]: new Date()
+      [manualTargetId]: new Date()
     }));
 
-    console.log(`💧 Activating sprinkler for ${targetZone.name} (AQI: ${aqiBefore})`);
+    console.log(`💧 Activating sprinkler for ${targetZone.name} (AQI: ${aqiBefore}, Humidity: ${humidity}%)`);
 
     // 4. Timer
     // For simulation, we speed up the outcome (5s for full duration)
     // But in history log, we want to show the 'roundedDuration' (e.g. 3.5 min)
     const timer = setTimeout(() => {
-      finalizeActivation(targetZone.id);
+      finalizeActivation(manualTargetId);
     }, 5000 * (roundedDuration / 3));
 
-    manualTimersRef.current[targetZone.id] = timer;
+    manualTimersRef.current[manualTargetId] = timer;
   };
 
   // Automatic Trigger Logic: Forecast-Aware Proactive Maintenance
@@ -404,49 +354,51 @@ const App: React.FC = () => {
     return peak;
   }, [locations]);
 
+  // Ref for locations to be used in the stable 60s monitoring loop
+  const locationsRef = useRef(locations);
   useEffect(() => {
-    if (sprinklerStatus.state === SprinklerState.ACTIVE) return;
+    locationsRef.current = locations;
+  }, [locations]);
 
-    const TARGET_AQI = 80;
-    const MAINTENANCE_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+  // Stable 60s Monitoring Loop
+  useEffect(() => {
+    console.log('🤖 Starting master control monitoring loop (60s interval)...');
 
-    const shouldTrigger = () => {
-      // 1. Critical Mitigation: current AQI is very high
-      if (colonyAverageAQI >= 200) {
-        console.log('🚨 Critical Mitigation Triggered (current AQI)');
-        return true;
-      }
+    const monitorAllNodes = () => {
+      locationsRef.current.filter(l => l.type === 'TEMP_NODE').forEach(loc => {
+        // Skip if already active in state
+        if (sprinklerStatus.activeNodes[loc.id]) return;
 
-      // 2. Forecast-based Pre-emptive Trigger: forecast predicts high AQI
-      if (forecastPeakAQI >= 200) {
-        if (!sprinklerStatus.lastActivation) return true;
-        const lastTime = new Date(sprinklerStatus.lastActivation).getTime();
-        if (Date.now() - lastTime > MAINTENANCE_COOLDOWN_MS) {
-          console.log('🔮 Forecast Pre-emptive Trigger (predicted AQI:', forecastPeakAQI, ')');
-          return true;
+        const currentAQI = loc.currentReading.aqi;
+        const humidity = loc.currentReading.humidity || 0;
+
+        let forecastPeak = 0;
+        if (loc.predictions && loc.predictions.length > 0) {
+          forecastPeak = Math.max(...loc.predictions.map(p => p.aqi));
         }
-      }
 
-      // 3. Proactive Maintenance: current AQI above target
-      if (colonyAverageAQI > TARGET_AQI) {
-        if (!sprinklerStatus.lastActivation) return true;
+        // Call the decoupled control service
+        const activationRecommended = shouldActivateSprinkler(currentAQI, forecastPeak, humidity);
 
-        const lastTime = new Date(sprinklerStatus.lastActivation).getTime();
-        const timeSince = Date.now() - lastTime;
+        if (activationRecommended) {
+          const MAINTENANCE_COOLDOWN_MS = 20 * 60 * 1000;
+          const lastTreated = zoneLastTreated[loc.id];
+          const isOnCooldown = lastTreated && (Date.now() - lastTreated.getTime() < MAINTENANCE_COOLDOWN_MS);
 
-        if (timeSince > MAINTENANCE_COOLDOWN_MS) {
-          console.log('🌱 Proactive Maintenance Triggered');
-          return true;
+          if (!isOnCooldown) {
+            console.log(`🤖 [Control Service] Recommendation: ACTIVATE ${loc.name} (AQI: ${currentAQI}, Peak: ${forecastPeak}, Hum: ${humidity}%)`);
+            handleTriggerSprinkler(loc.id);
+          }
         }
-      }
-
-      return false;
+      });
     };
 
-    if (shouldTrigger()) {
-      handleTriggerSprinkler();
-    }
-  }, [colonyAverageAQI, forecastPeakAQI, sprinklerStatus.state, sprinklerStatus.lastActivation]);
+    const intervalId = setInterval(monitorAllNodes, 60000);
+    return () => {
+      console.log('🛑 Clearing monitoring loop...');
+      clearInterval(intervalId);
+    };
+  }, [zoneLastTreated, sprinklerStatus.activeNodes, handleTriggerSprinkler]); // Minimal stable deps
 
   const getAqiInfo = (category: AQICategory) => NAQI_BREAKPOINTS.find(b => b.category === category);
 
@@ -730,7 +682,10 @@ const App: React.FC = () => {
                 </div>
 
 
-                <PredictionModule />
+                <PredictionModule
+                  selectedId={selectedId}
+                  nodeName={selectedLocation?.name}
+                />
 
               </>
             ) : (

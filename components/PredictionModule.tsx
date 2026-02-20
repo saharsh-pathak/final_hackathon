@@ -1,21 +1,34 @@
 import React, { useEffect, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, CartesianGrid } from 'recharts';
-import { fetchNode1History, getChartData, PredictionPoint } from '../services/predictionService';
+import { fetchNodeHistory, getChartData, PredictionPoint } from '../services/predictionService';
 import { NAQI_BREAKPOINTS } from '../constants';
 
-const PredictionModule: React.FC = () => {
+interface PredictionModuleProps {
+    selectedId: string | null;
+    nodeName?: string;
+}
+
+const PredictionModule: React.FC<PredictionModuleProps> = ({ selectedId, nodeName }) => {
     const [chartData, setChartData] = useState<PredictionPoint[]>([]);
     const [loading, setLoading] = useState(true);
     const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
 
     const refreshPredictions = async () => {
+        if (!selectedId) return;
         setLoading(true);
         try {
-            console.log('🔮 Fetching history for prediction...');
-            const history = await fetchNode1History();
+            // Map frontend IDs to Firebase history nodes
+            // node-1 -> Node1, node-2 -> Node2, node-3 -> Node3, node-4 -> Node4
+            const dbPath = selectedId.startsWith('node-')
+                ? selectedId.replace('node-', 'Node')
+                : selectedId;
+
+            console.log(`🔮 Fetching history for ${dbPath}...`);
+            const history = await fetchNodeHistory(dbPath);
 
             if (history.length === 0) {
-                console.warn('⚠️ No history found for predictions');
+                console.warn(`⚠️ No history found for ${dbPath}`);
+                setChartData([]);
                 setLoading(false);
                 return;
             }
@@ -34,7 +47,7 @@ const PredictionModule: React.FC = () => {
         refreshPredictions();
         const interval = setInterval(refreshPredictions, 5 * 60 * 1000); // 5 mins
         return () => clearInterval(interval);
-    }, []);
+    }, [selectedId]);
 
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
@@ -69,7 +82,7 @@ const PredictionModule: React.FC = () => {
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h3 className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-1">AI Forecast Model</h3>
-                    <h2 className="text-xl font-black text-slate-900">30-Minute Trajectory</h2>
+                    <h2 className="text-xl font-black text-slate-900">{nodeName || 'Node'} Trajectory</h2>
                 </div>
                 <div className="text-right">
                     <div className="flex items-center gap-2 justify-end mb-1">
