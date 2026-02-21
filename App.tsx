@@ -4,6 +4,7 @@ import { LocationData, AQICategory, SprinklerStatus, SprinklerState } from './ty
 import { TEMP_AQI_LOCATIONS, NAQI_BREAKPOINTS, OFFICIAL_STATION_DATA, MAP_CENTER } from './constants';
 import { calculateAQI, getCategoryFromAQI, generateMockHistory, simulateNodeData, generateMockPredictions, simulateSprinklerImpact, subscribeToNode1, Node1FirebaseData, saveActivationToFirebase, fetchSprinklerHistory, calculatePM25FromAQI, pushSensorHistory } from './services/aqiService';
 import { shouldActivateSprinkler } from './services/controlService';
+import { fetchNodeHistory, predictNext30Minutes } from './services/predictionService';
 import AQIMap from './components/AQIMap';
 import PredictionModule from './components/PredictionModule';
 import SprinklerControl from './components/SprinklerControl';
@@ -80,10 +81,6 @@ const App: React.FC = () => {
       }
 
       prevHardwareActiveRef.current = isNowActive;
-
-      // Update ref for background recorder
-      node1LiveDataRef.current = data;
-
 
 
       // Update Node-1 in locations state with live ESP32 data
@@ -208,6 +205,42 @@ const App: React.FC = () => {
     };
     initData();
   }, []);
+
+  // Sync AI Predictions with global locations state every 5 minutes
+  useEffect(() => {
+    const updatePredictions = async () => {
+      if (locations.length === 0) return;
+      console.log('🤖 Syncing AI Predictions with global state...');
+
+      const updatedLocations = await Promise.all(locations.map(async (loc) => {
+        if (loc.type !== 'TEMP_NODE') return loc;
+
+        try {
+          const dbPath = loc.id.startsWith('node-')
+            ? loc.id.replace('node-', 'Node')
+            : loc.id;
+
+          const history = await fetchNodeHistory(dbPath);
+          if (history.length > 0) {
+            const { predictions } = await predictNext30Minutes(history);
+            return {
+              ...loc,
+              predictions
+            };
+          }
+        } catch (e) {
+          console.warn(`⚠️ Failed to sync predictions for ${loc.id}:`, e);
+        }
+        return loc;
+      }));
+
+      setLocations(updatedLocations);
+    };
+
+    updatePredictions();
+    const interval = setInterval(updatePredictions, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [loading]); // Run after initial load
 
   const allLocations = useMemo(() => [officialStation, ...locations], [officialStation, locations]);
   const selectedLocation = useMemo(() => allLocations.find(l => l.id === selectedId), [allLocations, selectedId]);
@@ -451,20 +484,22 @@ const App: React.FC = () => {
   }, [zoneLastTreated, sprinklerStatus.activeNodes, handleTriggerSprinkler]); // Minimal stable deps
 
   // 🤖 BACKGROUND HISTORY RECORDER
-  // Periodically saves Node 1 live data to Firebase history so the AI Forecast has data
-  const node1LiveDataRef = useRef<Node1FirebaseData | null>(null);
+  // Periodically saves Node 1-4 live data to Firebase history so the AI Forecast has data
   useEffect(() => {
-    console.log('🤖 Starting 5-minute history recording loop...');
+    console.log('🤖 Starting 5-minute history recording loop for all nodes...');
     const recordPoint = () => {
-      const currentData = node1LiveDataRef.current;
-      if (currentData) {
-        pushSensorHistory('Node1', {
-          aqi: currentData.aqi,
-          humidity: currentData.humidity,
-          temperature: currentData.temperature,
-          timestamp: currentData.timestamp || Math.floor(Date.now() / 1000)
+      locationsRef.current.filter(l => l.type === 'TEMP_NODE').forEach(loc => {
+        const dbPath = loc.id.startsWith('node-')
+          ? loc.id.replace('node-', 'Node')
+          : loc.id;
+
+        pushSensorHistory(dbPath, {
+          aqi: loc.currentReading.aqi,
+          humidity: loc.currentReading.humidity || 0,
+          temperature: loc.currentReading.temperature || 0,
+          timestamp: Math.floor(Date.now() / 1000)
         });
-      }
+      });
     };
 
     // Initial record and then every 5 minutes
@@ -775,6 +810,8 @@ const App: React.FC = () => {
                   selectedId={selectedId}
                   nodeName={selectedLocation?.name}
                   sprinklerActive={selectedLocation.id === 'node-1' ? selectedLocation.currentReading.sprinklerActive : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id])}
+                  mockHistory={selectedLocation?.history}
+                  currentAQI={selectedLocation.currentReading.aqi}
                 />
 
               </>

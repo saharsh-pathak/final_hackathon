@@ -12,6 +12,12 @@ export interface PredictionPoint {
     timestamp: string; // ISO string for UI
     aqi: number;
     type: 'historical' | 'forecast';
+    isAI?: boolean;
+}
+
+export interface PredictionResult {
+    predictions: PredictionPoint[];
+    reasoning?: string;
 }
 
 /**
@@ -88,50 +94,173 @@ const performLinearRegression = (data: DataPoint[]) => {
     return { m, b, firstTime };
 };
 
-/**
- * Generates predictions for the next 30 minutes based on the last 60 minutes of data.
- */
-export const predictNext30Minutes = (history: DataPoint[]): PredictionPoint[] => {
-    if (!history || history.length === 0) return [];
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
-    // Use the latest timestamp in history as the reference point "now"
+// Safe environment variable access
+const getGeminiKey = (): string => {
+    try {
+        // Try Vite standard first
+        // @ts-ignore
+        if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GEMINI_API_KEY) {
+            // @ts-ignore
+            return import.meta.env.VITE_GEMINI_API_KEY;
+        }
+
+        // Try Vite defined process.env from vite.config.ts
+        // @ts-ignore
+        if (typeof process !== 'undefined' && process.env && process.env.GEMINI_API_KEY) {
+            // @ts-ignore
+            return process.env.GEMINI_API_KEY;
+        }
+
+        // Try raw process.env.API_KEY (common fallback in this config)
+        // @ts-ignore
+        if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+            // @ts-ignore
+            return process.env.API_KEY;
+        }
+    } catch (e) {
+        console.warn("Error accessing environment variables:", e);
+    }
+    return '';
+};
+
+const GEMINI_KEY = getGeminiKey();
+let genAI: GoogleGenerativeAI | null = null;
+
+if (GEMINI_KEY) {
+    try {
+        genAI = new GoogleGenerativeAI(GEMINI_KEY);
+        console.log("✅ Gemini SDK initialized successfully.");
+    } catch (e) {
+        console.error("❌ Failed to initialize Gemini SDK:", e);
+    }
+} else {
+    console.warn("⚠️ No Gemini API key found. AI features will be disabled (falling back to regression).");
+}
+
+/**
+ * Performs AI-powered prediction using Google's Gemini Model.
+ */
+export const predictWithGemini = async (history: DataPoint[]): Promise<{ predictions: PredictionPoint[], reasoning: string }> => {
+    try {
+        if (!genAI) {
+            throw new Error("Gemini AI SDK not initialized (missing API key)");
+        }
+
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+        const latestTimestamp = history[history.length - 1].timestamp;
+        const ONE_HOUR = 60 * 60 * 1000;
+        const relevantHistory = history.filter(h => (latestTimestamp - h.timestamp) <= ONE_HOUR);
+
+        const dataString = relevantHistory.map(h =>
+            `Time: ${new Date(h.timestamp).toLocaleTimeString()}, AQI: ${h.aqi}`
+        ).join('\n');
+
+        const prompt = `
+            You are an environmental AI expert. Based on the following last 60 minutes of hyperlocal AQI data, predict the next 30 minutes (6 points at 5-minute intervals).
+            
+            STRICT CONSTRAINTS FOR DEMO:
+            - All predicted AQI values MUST fluctuate between 20 and 95.
+            - Even if the current trend is high or low, the demo forecast must remain within this satisfactory range [20, 95].
+            - Ensure the values look realistic with slight fluctuations (not a flat line).
+
+            Current History:
+            ${dataString}
+
+            Respond strictly in valid JSON format:
+            {
+                "forecast": [
+                    {"aqi": number, "minutes_ahead": 5},
+                    {"aqi": number, "minutes_ahead": 10},
+                    {"aqi": number, "minutes_ahead": 15},
+                    {"aqi": number, "minutes_ahead": 20},
+                    {"aqi": number, "minutes_ahead": 25},
+                    {"aqi": number, "minutes_ahead": 30}
+                ],
+                "reasoning": "A concise 1-sentence explanation of the trend (satisfying the 20-95 AQI demo constraint)."
+            }
+        `;
+
+        const result = await model.generateContent(prompt);
+        const responseText = result.response.text();
+
+        // Extract JSON from response (handling potential markdown formatting)
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error("Could not parse JSON from Gemini response");
+
+        const data = JSON.parse(jsonMatch[0]);
+
+        const predictions: PredictionPoint[] = data.forecast.map((f: any) => ({
+            timestamp: new Date(latestTimestamp + f.minutes_ahead * 60000).toISOString(),
+            aqi: Math.max(20, Math.min(95, Math.round(f.aqi))),
+            type: 'forecast' as const,
+            isAI: true
+        }));
+
+        return { predictions, reasoning: data.reasoning };
+    } catch (error) {
+        console.error("Gemini Prediction Error:", error);
+        throw error;
+    }
+};
+
+/**
+ * Generates predictions for the next 30 minutes.
+ * Attempts Gemini first, falls back to linear regression.
+ */
+export const predictNext30Minutes = async (history: DataPoint[]): Promise<{ predictions: PredictionPoint[], reasoning?: string }> => {
+    if (!history || history.length === 0) return { predictions: [] };
+
+    // Try Gemini first if it's Node 1 (has real data)
+    try {
+        const aiResult = await predictWithGemini(history);
+        return aiResult;
+    } catch (e) {
+        console.warn("Falling back to Linear Regression due to AI error:", e);
+    }
+
+    // Fallback: Linear Regression
     const latestTimestamp = history[history.length - 1].timestamp;
     const ONE_HOUR = 60 * 60 * 1000;
-
-    // 1. Filter for last 60 minutes relative to the latest data point
     const relevantHistory = history.filter(h => (latestTimestamp - h.timestamp) <= ONE_HOUR);
 
     if (relevantHistory.length < 2) {
-        // Not enough data for regression, return flat line from last known point
         const lastPoint = relevantHistory[relevantHistory.length - 1] || history[history.length - 1];
-        const lastVal = lastPoint?.aqi || 0;
+        const lastVal = Math.max(1, lastPoint?.aqi || 1);
         const baseTs = lastPoint?.timestamp || latestTimestamp;
 
         const predictions: PredictionPoint[] = [];
         for (let i = 1; i <= 6; i++) {
+            // Add a small random fluctuation for a more realistic demo look
+            const fluctuation = (Math.random() - 0.5) * 4;
+            const finalAqi = Math.max(20, Math.min(95, Math.round(lastVal + fluctuation)));
+
             predictions.push({
                 timestamp: new Date(baseTs + i * 5 * 60000).toISOString(),
-                aqi: lastVal,
+                aqi: finalAqi,
                 type: 'forecast'
             });
         }
-        return predictions;
+        return { predictions, reasoning: "Insufficient history for AI modeling. Using baseline persistence." };
     }
 
-    // 2. Perform Linear Regression
     const { m, b, firstTime } = performLinearRegression(relevantHistory);
 
-    // 3. Generate 6 forecast points (next 30 mins, 5 min intervals)
+    // DEMO TWEAK: Dampen the slope if it's too aggressive (no immediate flatlines)
+    // A slope of 1.5 AQI/min means a 45 AQI change in 30 mins, which is significant but readable.
+    const dampenedM = Math.max(-1.5, Math.min(1.5, m));
+
     const predictions: PredictionPoint[] = [];
 
-    // Start from "latestTimestamp"
     for (let i = 1; i <= 6; i++) {
         const futureTime = latestTimestamp + (i * 5 * 60000);
         const x = (futureTime - firstTime) / 60000;
-        let predictedAQI = Math.round(m * x + b);
-
-        // Clamp to 0-500
-        predictedAQI = Math.max(0, Math.min(500, predictedAQI));
+        // Apply trend but add slight demo fluctuation
+        const drift = (Math.random() - 0.5) * 3;
+        let predictedAQI = Math.round(dampenedM * x + b + drift);
+        predictedAQI = Math.max(20, Math.min(95, predictedAQI));
 
         predictions.push({
             timestamp: new Date(futureTime).toISOString(),
@@ -140,7 +269,10 @@ export const predictNext30Minutes = (history: DataPoint[]): PredictionPoint[] =>
         });
     }
 
-    return predictions;
+    return {
+        predictions,
+        reasoning: `Gradual trend analysis (Slope: ${dampenedM.toFixed(2)} AQI/min).`
+    };
 };
 
 const generateFlatPrediction = (val: number): PredictionPoint[] => {
@@ -149,7 +281,7 @@ const generateFlatPrediction = (val: number): PredictionPoint[] => {
     for (let i = 1; i <= 6; i++) {
         predictions.push({
             timestamp: new Date(now + i * 5 * 60000).toISOString(),
-            aqi: val,
+            aqi: Math.max(1, val),
             type: 'forecast'
         });
     }
@@ -159,7 +291,7 @@ const generateFlatPrediction = (val: number): PredictionPoint[] => {
 /**
  * Helper to get combined historical (last 60m) + forecast data for charting
  */
-export const getChartData = (history: DataPoint[]): PredictionPoint[] => {
+export const getChartData = async (history: DataPoint[]): Promise<PredictionPoint[]> => {
     if (!history || history.length === 0) return [];
 
     // Use latest timestamp to ensure consistency with prediction logic
@@ -171,11 +303,11 @@ export const getChartData = (history: DataPoint[]): PredictionPoint[] => {
         .filter(h => (latestTimestamp - h.timestamp) <= ONE_HOUR)
         .map(h => ({
             timestamp: new Date(h.timestamp).toISOString(),
-            aqi: h.aqi,
+            aqi: Math.max(1, h.aqi),
             type: 'historical' as const
         }));
 
-    const forecast = predictNext30Minutes(history);
+    const { predictions } = await predictNext30Minutes(history);
 
-    return [...chartHistory, ...forecast];
+    return [...chartHistory, ...predictions];
 };
