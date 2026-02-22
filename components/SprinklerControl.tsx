@@ -67,7 +67,7 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
                         </div>
                     ) : (
                         <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
-                            <div className="flex justify-between items-start mb-4">
+                            <div className="flex justify-between items-start mb-3">
                                 <div>
                                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Manual Control</span>
                                     <span className="text-xs font-bold text-slate-900">
@@ -79,6 +79,14 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
                                         Active ({Math.max(0, 10 - Math.floor((Date.now() - status.activeNodes[selectedId]) / 60000))}m left)
                                     </div>
                                 )}
+                            </div>
+
+                            {/* Prediction System Offline badge */}
+                            <div className="flex items-center gap-1.5 mb-3 px-2 py-1.5 bg-amber-50 border border-amber-100 rounded-md">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500 shrink-0">
+                                    <line x1="1" y1="1" x2="23" y2="23" /><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01" />
+                                </svg>
+                                <span className="text-[9px] font-black text-amber-600 uppercase tracking-widest">Prediction System Offline — Direct Control Only</span>
                             </div>
 
                             {selectedId ? (

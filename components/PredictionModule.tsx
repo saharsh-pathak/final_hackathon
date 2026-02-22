@@ -17,9 +17,21 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({ selectedId, nodeNam
     const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
     const [aiReasoning, setAiReasoning] = useState<string>('');
     const lastPredictedAqiRef = useRef<number>(0);
+    // ⏱️ Fixed 5-minute forecast cycle: tracks when the last forecast was computed
+    const lastForecastTimestampRef = useRef<number>(0);
+    // 🔒 Concurrency guard: prevent overlapping forecasts (startup delay + reconnect can both fire)
+    const isRunningRef = useRef<boolean>(false);
+    // 📡 Always-current AQI ref — avoids stale closure in setTimeout callbacks
+    const currentAQIRef = useRef<number | undefined>(currentAQI);
+    useEffect(() => { currentAQIRef.current = currentAQI; }, [currentAQI]);
 
     const refreshPredictions = async () => {
         if (!selectedId) return;
+        if (isRunningRef.current) {
+            console.log('🔒 [Forecast] Skipping — prediction already in progress.');
+            return;
+        }
+        isRunningRef.current = true;
         setLoading(true);
         try {
             const dbPath = selectedId.startsWith('node-')
@@ -38,78 +50,159 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({ selectedId, nodeNam
             }
 
             if (history.length === 0) {
-                console.warn(`⚠️ No history found (real or mock) for ${dbPath}`);
-                setChartData([]);
-                setAiReasoning('');
-                setLoading(false);
-                return;
+                // 🌱 LIVE SEED FALLBACK: No Firebase history yet (fresh session / just connected).
+                // If we have a valid live AQI, seed a minimal history from the current reading
+                // so the forecast can still run. Use 3 identical points spread over 15 min.
+                // ✅ Use currentAQIRef.current (always latest) — not the stale closure value.
+                const liveAQIVal = currentAQIRef.current;
+                if (liveAQIVal !== undefined && !isNaN(liveAQIVal) && isFinite(liveAQIVal)) {
+                    console.log(`🌱 [Seed] No Firebase history — seeding from live AQI ${liveAQIVal}`);
+                    const now = Date.now();
+                    history = [
+                        { timestamp: now - 15 * 60 * 1000, aqi: liveAQIVal, humidity: 50, temperature: 25 },
+                        { timestamp: now - 10 * 60 * 1000, aqi: liveAQIVal, humidity: 50, temperature: 25 },
+                        { timestamp: now - 5 * 60 * 1000, aqi: liveAQIVal, humidity: 50, temperature: 25 },
+                    ];
+                } else {
+                    console.warn(`⚠️ No history and no valid live AQI for ${dbPath}. Cannot generate forecast.`);
+                    setChartData([]);
+                    setAiReasoning('');
+                    setLoading(false);
+                    isRunningRef.current = false;
+                    return;
+                }
             }
 
-            // SYNC LIVE REAING: If we have a live currentAQI, ensure it's the latest point in history
-            if (currentAQI !== undefined) {
-                // For demo, ensure the live reading also falls within our satisfactory [20, 95] window
-                const demoAqi = Math.max(20, Math.min(95, currentAQI));
-                const livePoint = { timestamp: Date.now(), aqi: demoAqi };
+            // SYNC LIVE READING: Only inject a live point if currentAQI is a valid real number.
+            // NEVER inject NaN — that would poison the history and disable the forecast.
+            // ✅ Use ref to bypass stale closure from setTimeout.
+            const liveAQI = currentAQIRef.current;
+            if (liveAQI !== undefined && !isNaN(liveAQI) && isFinite(liveAQI)) {
+                const livePoint = {
+                    timestamp: Date.now(),
+                    aqi: liveAQI,
+                    humidity: 50,
+                    temperature: 25
+                };
                 // If live point is newer than latest history, append it
                 if (livePoint.timestamp > (history.length > 0 ? history[history.length - 1].timestamp : 0)) {
-                    console.log(`📡 [Real-time Sync/Demo Clamp] Injecting live reading ${demoAqi} into history`);
+                    console.log(`📡 [Real-time Sync] Injecting live reading ${liveAQI} into history`);
                     history = [...history, livePoint];
                 }
             }
 
-            // Get historical data for chart
+            // Filter last 60 minutes of history for chart display
             const latestTimestamp = history[history.length - 1].timestamp;
             const ONE_HOUR = 60 * 60 * 1000;
-            const chartHistory: PredictionPoint[] = history
-                .filter(h => (latestTimestamp - h.timestamp) <= ONE_HOUR)
-                .map(h => ({
-                    timestamp: new Date(h.timestamp).toISOString(),
-                    aqi: Math.max(20, Math.min(95, h.aqi)),
-                    type: 'historical' as const
-                }));
+            const chartHistory = history.filter(h => (latestTimestamp - h.timestamp) <= ONE_HOUR);
 
             // Fetch AI/Regression forecast
             const { predictions, reasoning } = await predictNext30Minutes(history);
 
-            setChartData([...chartHistory, ...predictions]);
+            // Build UNIFIED chart data array — the correct Recharts multi-series pattern.
+            // Using separate dataKeys (historicalAqi / forecastAqi) on a single array avoids
+            // the index-matching bug where per-Line data props get cut off.
+            const lastHistorical = chartHistory[chartHistory.length - 1];
+            const unifiedData = [
+                ...chartHistory.map(h => ({ timestamp: new Date(h.timestamp).toISOString(), historicalAqi: h.aqi, forecastAqi: undefined as number | undefined })),
+                // Transition: last historical point also starts the forecast line
+                ...predictions.map((p, i) => ({
+                    timestamp: p.timestamp,
+                    historicalAqi: i === 0 && lastHistorical ? lastHistorical.aqi : undefined,
+                    forecastAqi: p.aqi
+                }))
+            ];
+
+            setChartData(unifiedData as any);
             setAiReasoning(reasoning || '');
             setLastUpdate(new Date());
-            if (currentAQI) lastPredictedAqiRef.current = currentAQI;
+            if (currentAQIRef.current) lastPredictedAqiRef.current = currentAQIRef.current;
+
+            // ✅ Record the timestamp of this forecast computation
+            lastForecastTimestampRef.current = Date.now();
+            console.log(`⏱️ Forecast computed at ${new Date().toLocaleTimeString()}. Next update in 5 minutes.`);
         } catch (e) {
             console.error("Prediction Error:", e);
         } finally {
+            isRunningRef.current = false;
             setLoading(false);
         }
     };
 
+    // ⏱️ FIXED 5-MINUTE FORECAST CYCLE
+    // On first load or node switch, waits 30s for Firebase data to stabilise before forecasting.
     useEffect(() => {
-        const drift = Math.abs((currentAQI || 0) - lastPredictedAqiRef.current);
-        // Refresh only if first run (0), ID change, or signficant drift (> 10%)
-        if (lastPredictedAqiRef.current === 0 || drift > 5) {
-            refreshPredictions();
+        const FIVE_MINUTES = 5 * 60 * 1000;
+        const STARTUP_DELAY_MS = 30 * 1000; // 30s grace period for data to arrive
+        const timeSinceLastForecast = Date.now() - lastForecastTimestampRef.current;
+
+        let startupTimeout: ReturnType<typeof setTimeout> | null = null;
+
+        if (lastForecastTimestampRef.current === 0 || timeSinceLastForecast >= FIVE_MINUTES) {
+            console.log(`⏱️ [Forecast Cycle] Waiting ${STARTUP_DELAY_MS / 1000}s for ESP data to stabilise before first forecast...`);
+            startupTimeout = setTimeout(() => {
+                console.log(`⏱️ [Forecast Cycle] Startup delay complete — running first forecast.`);
+                refreshPredictions();
+            }, STARTUP_DELAY_MS);
+        } else {
+            console.log(`⏱️ [Forecast Cycle] Skipping — only ${Math.round(timeSinceLastForecast / 1000)}s since last forecast.`);
         }
 
-        const interval = setInterval(refreshPredictions, 5 * 60 * 1000); // 5 mins
-        return () => clearInterval(interval);
-    }, [selectedId, currentAQI]);
+        const interval = setInterval(() => {
+            console.log(`⏱️ [Forecast Cycle] 5-minute clock tick.`);
+            refreshPredictions();
+        }, FIVE_MINUTES);
+
+        return () => {
+            if (startupTimeout) clearTimeout(startupTimeout);
+            clearInterval(interval);
+        };
+    }, [selectedId]); // Only re-runs on node switch
+
+    // 🔌 RECONNECTION TRIGGER: When ESP comes back online (NaN → valid AQI),
+    // wait 30 seconds for data to stabilise, then trigger a fresh forecast.
+    const prevAQIRef = useRef<number | undefined>(undefined);
+    useEffect(() => {
+        const wasNaN = prevAQIRef.current === undefined || isNaN(prevAQIRef.current as number);
+        const isNowValid = currentAQI !== undefined && !isNaN(currentAQI) && isFinite(currentAQI);
+
+        let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+
+        if (wasNaN && isNowValid) {
+            console.log(`🔌 [Reconnect] ESP came online (AQI: ${currentAQI}). Waiting 30s for data to stabilise...`);
+            reconnectTimeout = setTimeout(() => {
+                console.log(`🔌 [Reconnect] 30s elapsed — triggering forecast after ESP reconnect.`);
+                refreshPredictions();
+            }, 30000);
+        }
+        prevAQIRef.current = currentAQI;
+
+        return () => { if (reconnectTimeout) clearTimeout(reconnectTimeout); };
+    }, [currentAQI]); // Watches for sensor state changes only
 
     const CustomTooltip = ({ active, payload }: any) => {
         if (active && payload && payload.length) {
             const data = payload[0].payload;
-            const isForecast = data.type === 'forecast';
-            const val = data.aqi;
+            // In the unified model, a point is forecast if forecastAqi is defined
+            // AND historicalAqi is not (or it's the transition point where we consider it forecast)
+            const isForecast = data.forecastAqi !== undefined && data.historicalAqi === undefined;
+            const val = isForecast ? data.forecastAqi : (data.historicalAqi ?? data.forecastAqi);
             const category = NAQI_BREAKPOINTS.find(b => val >= b.minAQI && val <= b.maxAQI);
+            const time = new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
             return (
                 <div className="bg-slate-900 text-white p-3 rounded-lg shadow-xl border border-slate-700">
                     <p className="text-[10px] font-bold text-slate-400 mb-1">
-                        {new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })} {isForecast ? '(Forecast)' : '(Historical)'}
+                        {time} <span className={`px-1 py-0.5 rounded text-[8px] font-black ${isForecast ? 'bg-purple-700 text-purple-100' : 'bg-blue-700 text-blue-100'}`}>{isForecast ? 'FORECAST' : 'HISTORICAL'}</span>
                     </p>
                     <div className="flex items-center gap-2">
-                        <span className="text-xl font-black">{val}</span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-black text-slate-900 ${category?.color || 'bg-slate-200'}`}>
-                            {category?.category || 'Unknown'}
-                        </span>
+                        <span className="text-xl font-black">{val !== undefined ? Math.round(val) : '—'}</span>
+                        <span className="text-[9px] text-slate-400 font-bold">AQI</span>
+                        {category && (
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-black text-slate-900 ${category.color}`}>
+                                {category.category}
+                            </span>
+                        )}
                     </div>
                 </div>
             );
@@ -121,13 +214,6 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({ selectedId, nodeNam
         return new Date(tickItem).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
     };
 
-    const historyPoints = useMemo(() => chartData.filter(d => d.type === 'historical'), [chartData]);
-    const forecastPoints = useMemo(() => chartData.filter(d => d.type === 'forecast'), [chartData]);
-
-    const forecastChartData = useMemo(() => {
-        const lastHistorical = historyPoints[historyPoints.length - 1];
-        return lastHistorical ? [lastHistorical, ...forecastPoints] : forecastPoints;
-    }, [historyPoints, forecastPoints]);
 
     return (
         <div className="bg-white rounded-lg p-6 border border-slate-200 shadow-sm flex flex-col h-full max-h-[600px]">
@@ -172,23 +258,25 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({ selectedId, nodeNam
                             <XAxis dataKey="timestamp" hide />
                             <YAxis domain={['auto', 'auto']} hide />
                             <Tooltip content={<CustomTooltip />} />
+                            {/* Blue solid line: historical trend */}
                             <Line
                                 type="monotone"
-                                dataKey="aqi"
-                                data={historyPoints}
+                                dataKey="historicalAqi"
                                 stroke="#3b82f6"
                                 strokeWidth={3}
                                 dot={false}
+                                connectNulls={false}
                                 isAnimationActive={false}
                             />
+                            {/* Purple dashed line: AI forecast — no per-Line data prop to avoid index cut-off */}
                             <Line
                                 type="monotone"
-                                dataKey="aqi"
-                                data={forecastChartData}
+                                dataKey="forecastAqi"
                                 stroke="#a855f7"
                                 strokeWidth={3}
                                 strokeDasharray="5 5"
                                 dot={false}
+                                connectNulls={false}
                                 isAnimationActive={false}
                             />
                         </LineChart>
@@ -212,30 +300,34 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({ selectedId, nodeNam
                 </div>
             )}
 
-            {forecastPoints.length > 0 && (
-                <div className="mt-4">
-                    <h3 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">30m Forecast Breakdown</h3>
-                    <div className="grid grid-cols-6 gap-1">
-                        {forecastPoints.map((p, i) => {
-                            const category = NAQI_BREAKPOINTS.find(b => p.aqi >= b.minAQI && p.aqi <= b.maxAQI);
-                            return (
-                                <div key={i} className="bg-slate-50 rounded-md p-1 border border-slate-100 text-center">
-                                    <div className="text-[7px] font-black text-slate-400 uppercase mb-0.5">+{(i + 1) * 5}m</div>
-                                    <div className="text-xs font-black text-slate-900">{Math.round(p.aqi)}</div>
-                                    <div className={`text-[6px] font-black uppercase px-1 py-0.5 rounded-sm inline-block ${category?.color || 'bg-slate-200'} text-slate-900 mt-0.5`}>
-                                        {category?.category.split(' ')[0]}
+            {chartData.filter((d: any) => d.forecastAqi !== undefined && !isNaN(d.forecastAqi) && d.historicalAqi === undefined).length > 0 && (() => {
+                const forecastBreakdown = chartData.filter((d: any) => d.forecastAqi !== undefined && !isNaN(d.forecastAqi) && d.historicalAqi === undefined);
+                return (
+                    <div className="mt-4">
+                        <h3 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">30m Forecast Breakdown</h3>
+                        <div className="grid grid-cols-6 gap-1">
+                            {forecastBreakdown.map((p: any, i: number) => {
+                                const category = NAQI_BREAKPOINTS.find(b => p.forecastAqi >= b.minAQI && p.forecastAqi <= b.maxAQI);
+                                return (
+                                    <div key={i} className="bg-slate-50 rounded-md p-1 border border-slate-100 text-center">
+                                        <div className="text-[7px] font-black text-slate-400 uppercase mb-0.5">+{(i + 1) * 5}m</div>
+                                        <div className="text-xs font-black text-slate-900">{Math.round(p.forecastAqi)}</div>
+                                        <div className={`text-[6px] font-black uppercase px-1 py-0.5 rounded-sm inline-block ${category?.color || 'bg-slate-200'} text-slate-900 mt-0.5`}>
+                                            {category?.category.split(' ')[0]}
+                                        </div>
                                     </div>
-                                </div>
-                            );
-                        })}
+                                );
+                            })}
+                        </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
 
             <div className="mt-auto flex justify-between items-center text-[8px] font-black text-slate-400 uppercase tracking-widest border-t border-slate-50 pt-3">
                 <span>Refreshed: {lastUpdate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 <span className="flex items-center gap-1">
-                    {forecastPoints[0]?.isAI && <span className="px-1 py-0.5 bg-purple-100 text-purple-700 rounded-sm">AI POWERED</span>}
+                    <span className="w-1 h-1 rounded-full bg-purple-400 animate-pulse"></span>
+                    Next Update: {new Date(lastUpdate.getTime() + 5 * 60 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
             </div>
         </div>

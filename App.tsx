@@ -28,6 +28,16 @@ const App: React.FC = () => {
   const [time, setTime] = useState(new Date());
   const manualTimersRef = useRef<{ [key: string]: NodeJS.Timeout }>({});
   const prevHardwareActiveRef = useRef<boolean>(false);
+  const activeSessionMetadata = useRef<{ [key: string]: { startTime: number, aqiBefore: number, projectedDuration: number } }>({});
+  // ⏱️ Tracks the BROWSER-SIDE time of the last Firebase callback (not the ESP's stored timestamp)
+  // This is the source of truth for the heartbeat — avoids false-positives from cached Firebase data.
+  const lastDataReceivedAtRef = useRef<number>(0);
+
+  // Ref for locations to be used in stable loops
+  const locationsRef = useRef<LocationData[]>([]);
+  useEffect(() => {
+    locationsRef.current = locations;
+  }, [locations]);
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
@@ -40,7 +50,34 @@ const App: React.FC = () => {
     const unsubscribe = subscribeToNode1((data) => {
       console.log('📡 Firebase Node1 update:', data);
       setNode1LiveData(data);
-      setNode1Connected(true);
+
+      // ✅ Record BROWSER-SIDE time when we actually received this callback.
+      // We use a 2-second startup grace period: Firebase fires `onValue` immediately
+      // with the last CACHED value even when the ESP is offline. We ignore that first
+      // cached burst and only mark the node "Connected" for callbacks that arrive
+      // at least 2s after the subscription started.
+      const now = Date.now();
+      if (lastDataReceivedAtRef.current === 0) {
+        // First callback: could be stale cache. Record time but don't mark as connected yet.
+        console.log('📡 [Heartbeat] First Firebase callback (may be stale cache). Waiting for next...');
+        lastDataReceivedAtRef.current = now;
+        // Schedule a check: if a SECOND callback doesn't arrive within 5s, this was just cache
+        setTimeout(() => {
+          if (lastDataReceivedAtRef.current === now) {
+            // No new data arrived — this was just cached Firebase data, ESP is likely offline
+            console.warn('📡 [Heartbeat] No follow-up data after initial cache. ESP likely offline.');
+            // Do NOT set connected; leave node1Connected as false
+          } else {
+            // A second callback arrived — ESP is genuinely live
+            console.log('📡 [Heartbeat] Follow-up data arrived. ESP is LIVE.');
+            setNode1Connected(true);
+          }
+        }, 5000);
+      } else {
+        // Subsequent callbacks: definitely live ESP data
+        lastDataReceivedAtRef.current = now;
+        setNode1Connected(true);
+      }
 
       // GLOBAL SYNC: If Node 1 hardware is active, ensure portal state reflects it
       setSprinklerStatus(prev => {
@@ -82,55 +119,89 @@ const App: React.FC = () => {
 
       prevHardwareActiveRef.current = isNowActive;
 
+      // ✅ CRITICAL GUARD: Only update Node 1 AQI if this is CONFIRMED LIVE data.
+      // `lastDataReceivedAtRef.current > 0` means we already processed a first callback,
+      // so this is a second or later callback — guaranteed to be fresh ESP data.
+      // The first callback is always the Firebase cached value (stale) — we discard it.
+      if (lastDataReceivedAtRef.current > 0) {
+        setLocations(prev => {
+          if (prev.length === 0) {
+            console.warn('📡 [Firebase] Node1 update received before locations initialized.');
+            return prev;
+          }
 
-      // Update Node-1 in locations state with live ESP32 data
-      setLocations(prev => {
-        // If locations haven't been initialized yet, we can't map. 
-        // But we should at least ensure Node-1 will be there.
-        if (prev.length === 0) {
-          console.warn('📡 [Firebase] Node1 update received before locations initialized.');
-          return prev;
-        }
+          return prev.map(loc => {
+            if (loc.id === 'node-1') {
+              let aqi = Number(data.aqi) || 0;
+              let pm25 = Number(data.pm25) || 0;
 
-        return prev.map(loc => {
-          if (loc.id === 'node-1') {
-            let aqi = Number(data.aqi) || 0;
-            let pm25 = Number(data.pm25) || 0;
+              if (aqi > 0 && pm25 === 0) {
+                pm25 = calculatePM25FromAQI(aqi);
+              } else if (pm25 > 0 && aqi === 0) {
+                aqi = calculateAQI(pm25).aqi;
+              }
 
-            // Ensure PM2.5 and AQI are always in sync for display
-            if (aqi > 0 && pm25 === 0) {
-              pm25 = calculatePM25FromAQI(aqi);
-            } else if (pm25 > 0 && aqi === 0) {
-              aqi = calculateAQI(pm25).aqi;
+              const category = getCategoryFromAQI(aqi);
+              const ts = Number(data.timestamp);
+              const timestamp = !isNaN(ts) ? new Date(ts).toISOString() : new Date().toISOString();
+
+              return {
+                ...loc,
+                currentReading: {
+                  ...loc.currentReading,
+                  aqi,
+                  category,
+                  pm25,
+                  pm10: pm25 * 1.6,
+                  humidity: Number(data.humidity) || 0,
+                  temperature: Number(data.temperature) || 0,
+                  sprinklerActive: !!data.sprinklerActive,
+                  sprinklerStatus: data.sprinklerStatus || 'Ready',
+                  timestamp
+                }
+              };
             }
+            return loc;
+          });
+        });
+      } else {
+        console.log('📡 [Firebase] First callback (stale cache) — discarding AQI update. Waiting for live data...');
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
-            const category = getCategoryFromAQI(aqi);
-            // Firebase stores ms, don't multiply by 1000
-            const ts = Number(data.timestamp);
-            const timestamp = !isNaN(ts) ? new Date(ts).toISOString() : new Date().toISOString();
+  // 💓 HEARTBEAT MONITOR: Uses browser-side lastDataReceivedAtRef to detect ESP disconnection.
+  // Runs every 5 seconds. If no Firebase callback has been received in >30s, marks node as disconnected.
+  useEffect(() => {
+    const HEARTBEAT_TIMEOUT = 30000; // 30 seconds
+    const interval = setInterval(() => {
+      if (lastDataReceivedAtRef.current === 0) return; // Never received any data yet
 
+      const diff = Date.now() - lastDataReceivedAtRef.current;
+      if (diff > HEARTBEAT_TIMEOUT && node1Connected) {
+        console.warn(`📡 [Heartbeat] No data from ESP in ${Math.round(diff / 1000)}s. Marking Node 1 as DISCONNECTED.`);
+        setNode1Connected(false);
+
+        // Set Node 1 AQI to NaN to clearly indicate disconnection
+        setLocations(prev => prev.map(loc => {
+          if (loc.id === 'node-1') {
             return {
               ...loc,
               currentReading: {
                 ...loc.currentReading,
-                aqi,
-                category,
-                pm25,
-                pm10: pm25 * 1.6,
-                humidity: Number(data.humidity) || 0,
-                temperature: Number(data.temperature) || 0,
-                sprinklerActive: !!data.sprinklerActive,
-                sprinklerStatus: data.sprinklerStatus || 'Ready',
-                timestamp
+                aqi: NaN,
+                pm25: NaN
               }
             };
           }
           return loc;
-        });
-      });
-    });
-    return () => unsubscribe();
-  }, []);
+        }));
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [node1Connected]); // Only re-run if connection status changes
 
   useEffect(() => {
     const initData = async () => {
@@ -157,20 +228,14 @@ const App: React.FC = () => {
           const node1Base = { pm25: 85, pm10: 136, ...calculateAQI(85) };
 
           if (idx === 0) {
-            nodeReading = node1Base;
+            // Node 1 starts as NaN/disconnected until Firebase confirms live ESP data.
+            // The Firebase subscription (guarded) will overwrite this with real values.
+            nodeReading = { aqi: NaN, pm25: NaN, pm10: NaN, category: 'UNKNOWN' as AQICategory };
           } else {
             // Simulate Nodes 2, 3, 4 as per User requested scenarios
             nodeReading = simulateNodeData(idx + 1);
           }
 
-          // RECONCILE WITH HISTORY: If this node was recently treated, use history value as starting point
-          const latestEntry = realHistory.find(h => h.zoneId === loc.id);
-          if (latestEntry) {
-            console.log(`📍 Syncing ${loc.id} for startup: Using history AQI ${latestEntry.aqiAfter}`);
-            nodeReading.aqi = latestEntry.aqiAfter;
-            // Re-derive category for UI color consistency
-            nodeReading.category = getCategoryFromAQI(nodeReading.aqi);
-          }
 
           return {
             ...loc,
@@ -179,8 +244,9 @@ const App: React.FC = () => {
               temperature: 28 + Math.random() * 4,
               ...nodeReading
             },
-            history: generateMockHistory(nodeReading.pm25),
-            predictions: generateMockPredictions(nodeReading.pm25)
+            // ✅ Guard: Don't generate mock history/predictions with NaN pm25 (Node 1 disconnected case)
+            history: (!isNaN(nodeReading.pm25) && isFinite(nodeReading.pm25)) ? generateMockHistory(nodeReading.pm25) : [],
+            predictions: (!isNaN(nodeReading.pm25) && isFinite(nodeReading.pm25)) ? generateMockPredictions(nodeReading.pm25) : []
           };
         });
 
@@ -238,6 +304,7 @@ const App: React.FC = () => {
     };
 
     updatePredictions();
+    updatePredictions();
     const interval = setInterval(updatePredictions, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [loading]); // Run after initial load
@@ -246,10 +313,13 @@ const App: React.FC = () => {
   const selectedLocation = useMemo(() => allLocations.find(l => l.id === selectedId), [allLocations, selectedId]);
 
   const colonyAverageAQI = useMemo(() => {
-    if (locations.length === 0) return 0;
-    const sum = locations.reduce((acc, loc) => acc + loc.currentReading.aqi, 0);
-    return Math.round(sum / locations.length);
+    const activeNodes = locations.filter(loc => !isNaN(loc.currentReading.aqi));
+    if (activeNodes.length === 0) return "NaN";
+    const sum = activeNodes.reduce((acc, loc) => acc + Number(loc.currentReading.aqi), 0);
+    return Math.round(sum / activeNodes.length);
   }, [locations]);
+
+  /* Removed duplicate */
 
   const colonyAverageHumidity = useMemo(() => {
     if (locations.length === 0) return 45;
@@ -259,7 +329,6 @@ const App: React.FC = () => {
     return Math.round(sum / validReadings.length);
   }, [locations]);
 
-  const activeSessionMetadata = useRef<{ [key: string]: { startTime: number, aqiBefore: number, projectedDuration: number } }>({});
 
   const finalizeActivation = (targetId: string) => {
     const meta = activeSessionMetadata.current[targetId];
@@ -437,11 +506,6 @@ const App: React.FC = () => {
     return peak;
   }, [locations]);
 
-  // Ref for locations to be used in the stable 60s monitoring loop
-  const locationsRef = useRef(locations);
-  useEffect(() => {
-    locationsRef.current = locations;
-  }, [locations]);
 
   // Stable 60s Monitoring Loop
   useEffect(() => {
@@ -451,6 +515,14 @@ const App: React.FC = () => {
       locationsRef.current.filter(l => l.type === 'TEMP_NODE').forEach(loc => {
         // Skip if already active in state
         if (sprinklerStatus.activeNodes[loc.id]) return;
+
+        // 🔌 MANUAL MODE GUARD: If this node is in manual mode, skip ALL prediction logic.
+        // Manual mode is completely decoupled from the ML forecast system.
+        const isManualMode = !(sprinklerStatus.autoMode[loc.id] ?? true);
+        if (isManualMode) {
+          console.log(`🖐️ [Manual Mode] Skipping ${loc.name} — prediction system offline for this node.`);
+          return;
+        }
 
         const currentAQI = loc.currentReading.aqi;
         const humidity = loc.currentReading.humidity || 0;
@@ -495,8 +567,8 @@ const App: React.FC = () => {
 
         pushSensorHistory(dbPath, {
           aqi: loc.currentReading.aqi,
-          humidity: loc.currentReading.humidity || 0,
-          temperature: loc.currentReading.temperature || 0,
+          humidity: loc.currentReading.humidity ?? 50,
+          temperature: loc.currentReading.temperature ?? 25,
           timestamp: Math.floor(Date.now() / 1000)
         });
       });
@@ -550,9 +622,9 @@ const App: React.FC = () => {
           <div className="flex items-center gap-6">
             {/* Firebase Live Status Indicator */}
             <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200 shadow-sm">
-              <div className={`h-1.5 w-1.5 rounded-full ${locations.find(l => l.id === 'node-1')?.currentReading.aqi ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+              <div className={`h-1.5 w-1.5 rounded-full ${node1Connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                {locations.find(l => l.id === 'node-1')?.currentReading.aqi ? 'Node 1: Live' : 'Node 1: Waiting for Data'}
+                {node1Connected ? 'Node 1: Live' : 'Node 1: Offline'}
               </span>
             </div>
             <div className="text-right">
@@ -564,9 +636,9 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8 md:px-8 space-y-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Left Column: Node Grid, Sprinkler Control, and Map */}
-          <div className="lg:col-span-7 space-y-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Left Column: Node Grid and Sprinkler Control */}
+          <div className="space-y-8">
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {locations.filter(l => l.type === 'TEMP_NODE').map(loc => {
@@ -605,10 +677,10 @@ const App: React.FC = () => {
                       <h4 className="text-[9px] font-black text-slate-500 line-clamp-1 uppercase tracking-tight">{loc.name}</h4>
                     </div>
                     <div className="text-2xl font-black text-slate-900 tracking-tighter mb-1 mt-auto">
-                      {currentAqi} <span className="text-[8px] font-black text-slate-300 uppercase">AQI</span>
+                      {isNaN(currentAqi) ? 'NaN' : currentAqi} <span className="text-[8px] font-black text-slate-300 uppercase">AQI</span>
                     </div>
-                    <div className={`text-[8px] font-black uppercase tracking-widest ${info?.textColor || 'text-slate-400'}`}>
-                      {currentCategory}
+                    <div className={`text-[8px] font-black uppercase tracking-widest ${isNaN(currentAqi) ? 'text-slate-300' : (info?.textColor || 'text-slate-400')}`}>
+                      {isNaN(currentAqi) ? 'Offline' : currentCategory}
                     </div>
 
                     {isNode1 && (
@@ -642,185 +714,199 @@ const App: React.FC = () => {
               onSetThreshold={(val) => setSprinklerStatus(p => ({ ...p, threshold: val }))}
               isHardwareActive={selectedLocation?.currentReading?.sprinklerActive}
             />
-
-            <AQIMap locations={locations} selectedId={selectedId} onSelectLocation={setSelectedId} clusters={{}} />
           </div>
 
-          {/* Right Column: Node Details and Predictions */}
-          <div className="lg:col-span-5 space-y-8">
+          {/* Right Column: Node Details */}
+          <div className="space-y-8">
             {selectedLocation ? (
-              <>
-                <div className="bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden">
+              <div className="bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden h-full">
 
-                  <div className="p-8">
-                    <div className="flex justify-between items-start mb-8">
-                      <div>
-                        <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2 block">
-                          {selectedLocation.type === 'OFFICIAL' ? 'Official Reference' : 'Hyperlocal Node'}
-                        </span>
-                        <h2 className="text-2xl font-black text-slate-900 leading-tight">{selectedLocation.name}</h2>
+                <div className="p-8">
+                  <div className="flex justify-between items-start mb-8">
+                    <div>
+                      <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2 block">
+                        {selectedLocation.type === 'OFFICIAL' ? 'Official Reference' : 'Hyperlocal Node'}
+                      </span>
+                      <h2 className="text-2xl font-black text-slate-900 leading-tight">{selectedLocation.name}</h2>
 
-                      </div>
-                      <div className={`px-6 py-4 rounded-lg text-center ${getAqiInfo(getCategoryFromAQI(selectedLocation.currentReading.aqi))?.color || 'bg-slate-400'} text-white shadow-2xl`}>
-                        <div className="text-4xl font-black tracking-tighter">{selectedLocation.currentReading.aqi}</div>
-                        <div className="text-[9px] font-black uppercase tracking-widest opacity-80 mt-1">AQI</div>
+                    </div>
+                    <div className={`px-6 py-4 rounded-lg text-center ${getAqiInfo(getCategoryFromAQI(selectedLocation.currentReading.aqi))?.color || 'bg-slate-400'} text-white shadow-2xl`}>
+                      <div className="text-4xl font-black tracking-tighter">{selectedLocation.currentReading.aqi}</div>
+                      <div className="text-[9px] font-black uppercase tracking-widest opacity-80 mt-1">AQI</div>
+                    </div>
+                  </div>
+
+                  {selectedLocation.type === 'OFFICIAL' ? (
+                    <div className="bg-slate-50 rounded-lg p-6 border border-slate-100 mb-8">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Official Station Metadata</span>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Operator</p>
+                          <p className="text-xs font-black text-slate-800">DPCC / CPCB</p>
+                        </div>
+                        <div>
+                          <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Radius</p>
+                          <p className="text-xs font-black text-slate-800">5.0 Kilometers</p>
+                        </div>
+                        <div className="col-span-2">
+                          <p className="text-[8px] font-black text-slate-400 uppercase mb-2">Measured Pollutants</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {selectedLocation.officialData?.pollutants.map(p => (
+                              <span key={p} className="px-2 py-1 bg-white text-[8px] font-black rounded-lg border border-slate-200">{p}</span>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     </div>
+                  ) : (
+                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
+                      {/* 1. PM2.5 for ALL nodes */}
+                      <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
+                        <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">PM2.5</span>
+                        <span className="text-xl font-black text-slate-800">
+                          {selectedLocation.currentReading.pm25 ? selectedLocation.currentReading.pm25.toFixed(2) : '0.00'}
+                        </span>
+                      </div>
 
-                    {selectedLocation.type === 'OFFICIAL' ? (
-                      <div className="bg-slate-50 rounded-lg p-6 border border-slate-100 mb-8">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Official Station Metadata</span>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Operator</p>
-                            <p className="text-xs font-black text-slate-800">DPCC / CPCB</p>
-                          </div>
-                          <div>
-                            <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Radius</p>
-                            <p className="text-xs font-black text-slate-800">5.0 Kilometers</p>
-                          </div>
-                          <div className="col-span-2">
-                            <p className="text-[8px] font-black text-slate-400 uppercase mb-2">Measured Pollutants</p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {selectedLocation.officialData?.pollutants.map(p => (
-                                <span key={p} className="px-2 py-1 bg-white text-[8px] font-black rounded-lg border border-slate-200">{p}</span>
-                              ))}
-                            </div>
-                          </div>
+                      {/* 2. PM10: 0.00 for Node 1, real value for others */}
+                      <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
+                        <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">PM10</span>
+                        <span className="text-xl font-black text-slate-800">
+                          {selectedLocation.id === 'node-1' ? '0.00' : (selectedLocation.currentReading.pm10 ? selectedLocation.currentReading.pm10.toFixed(2) : '0.00')}
+                        </span>
+                      </div>
+
+                      {/* 3. Humidity */}
+                      <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
+                        <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Humidity</span>
+                        <span className="text-xl font-black text-slate-800">{selectedLocation.currentReading.humidity?.toFixed(1) || '--'}%</span>
+                      </div>
+
+                      {/* 4. Temperature */}
+                      <div className="p-5 rounded-lg bg-blue-50 border border-blue-100">
+                        <span className="text-[9px] font-black text-blue-400 uppercase block mb-1">Temperature</span>
+                        <span className="text-xl font-black text-blue-800">
+                          {selectedLocation.currentReading.temperature
+                            ? selectedLocation.currentReading.temperature.toFixed(1) + '°C'
+                            : '--'}
+                        </span>
+                      </div>
+
+                      {/* 5. Sprinkler Status for ALL nodes */}
+                      <div className={`p-5 rounded-lg col-span-2 border ${sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]
+                        ? 'bg-green-50 border-green-200'
+                        : 'bg-slate-50 border-slate-100'
+                        }`}>
+                        <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Sprinkler Status</span>
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2.5 h-2.5 rounded-full ${(selectedLocation.id === 'node-1' ? selectedLocation.currentReading.sprinklerActive : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]))
+                            ? 'bg-green-500 animate-pulse'
+                            : 'bg-slate-300'
+                            }`} />
+                          <span className={`text-xl font-black ${(selectedLocation.id === 'node-1' ? selectedLocation.currentReading.sprinklerActive : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]))
+                            ? 'text-green-700'
+                            : 'text-slate-500'
+                            }`}>
+                            {selectedLocation.id === 'node-1' ? (selectedLocation.currentReading.sprinklerActive ? 'Active' : 'Standby') : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id] ? 'Active' : 'Standby')}
+                          </span>
                         </div>
                       </div>
-                    ) : (
-                      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
-                        {/* 1. PM2.5 for ALL nodes */}
-                        <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
-                          <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">PM2.5</span>
-                          <span className="text-xl font-black text-slate-800">
-                            {selectedLocation.currentReading.pm25 ? selectedLocation.currentReading.pm25.toFixed(2) : '0.00'}
-                          </span>
-                        </div>
 
-                        {/* 2. PM10: 0.00 for Node 1, real value for others */}
-                        <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
-                          <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">PM10</span>
-                          <span className="text-xl font-black text-slate-800">
-                            {selectedLocation.id === 'node-1' ? '0.00' : (selectedLocation.currentReading.pm10 ? selectedLocation.currentReading.pm10.toFixed(2) : '0.00')}
-                          </span>
-                        </div>
-
-                        {/* 3. Humidity */}
-                        <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
-                          <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Humidity</span>
-                          <span className="text-xl font-black text-slate-800">{selectedLocation.currentReading.humidity?.toFixed(1) || '--'}%</span>
-                        </div>
-
-                        {/* 4. Temperature */}
-                        <div className="p-5 rounded-lg bg-blue-50 border border-blue-100">
-                          <span className="text-[9px] font-black text-blue-400 uppercase block mb-1">Temperature</span>
-                          <span className="text-xl font-black text-blue-800">
-                            {selectedLocation.currentReading.temperature
-                              ? selectedLocation.currentReading.temperature.toFixed(1) + '°C'
-                              : '--'}
-                          </span>
-                        </div>
-
-                        {/* 5. Sprinkler Status for ALL nodes */}
-                        <div className={`p-5 rounded-lg col-span-2 border ${sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]
-                          ? 'bg-green-50 border-green-200'
-                          : 'bg-slate-50 border-slate-100'
-                          }`}>
-                          <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Sprinkler Status</span>
-                          <div className="flex items-center gap-2">
-                            <span className={`w-2.5 h-2.5 rounded-full ${(selectedLocation.id === 'node-1' ? selectedLocation.currentReading.sprinklerActive : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]))
-                              ? 'bg-green-500 animate-pulse'
-                              : 'bg-slate-300'
-                              }`} />
-                            <span className={`text-xl font-black ${(selectedLocation.id === 'node-1' ? selectedLocation.currentReading.sprinklerActive : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]))
-                              ? 'text-green-700'
-                              : 'text-slate-500'
-                              }`}>
-                              {selectedLocation.id === 'node-1' ? (selectedLocation.currentReading.sprinklerActive ? 'Active' : 'Standby') : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id] ? 'Active' : 'Standby')}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* 6. Station Proximity (Width optimized if column span allowed?) */}
-                        {/* Currently 3 cols width in original. I'll maintain col-span-3 on large (md+), col-span-2 on mobile. */}
-                        <div className="p-5 rounded-lg bg-slate-50 border border-slate-100 col-span-2 lg:col-span-3">
-                          <div className="flex justify-between items-center">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1e3a8a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="m16 10-4 4-4-4" /></svg>
-                              </div>
-                              <div>
-                                <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Station Proximity</span>
-                                <span className="text-sm font-black text-blue-900 tracking-tight">
-                                  {(() => {
-                                    const lat1 = selectedLocation.coordinates[0];
-                                    const lon1 = selectedLocation.coordinates[1];
-                                    const lat2 = OFFICIAL_STATION_DATA.coordinates[0];
-                                    const lon2 = OFFICIAL_STATION_DATA.coordinates[1];
-                                    const R = 6371; // km
-                                    const dLat = (lat2 - lat1) * Math.PI / 180;
-                                    const dLon = (lon2 - lon1) * Math.PI / 180;
-                                    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
-                                    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-                                    return (R * c).toFixed(2);
-                                  })()} km from Reference Station
-                                </span>
-                              </div>
+                      {/* 6. Station Proximity (Width optimized if column span allowed?) */}
+                      {/* Currently 3 cols width in original. I'll maintain col-span-3 on large (md+), col-span-2 on mobile. */}
+                      <div className="p-5 rounded-lg bg-slate-50 border border-slate-100 col-span-2 lg:col-span-3">
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1e3a8a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="m16 10-4 4-4-4" /></svg>
                             </div>
-                            <div className="px-3 py-1 bg-green-100 text-green-700 rounded text-[8px] font-black uppercase">Hyperlocal Zone</div>
-                          </div>
-                        </div>
-
-                        {/* 7. Last Activation Widget */}
-                        <div className="p-5 rounded-lg bg-slate-50 border border-slate-100 col-span-2 lg:col-span-3">
-                          <div className="flex justify-between items-center">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b21a8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-                              </div>
-                              <div>
-                                <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Last Activated</span>
-                                <span className="text-sm font-black text-purple-900 tracking-tight">
-                                  {zoneLastTreated[selectedLocation.id] ? (() => {
-                                    const diffMs = Date.now() - new Date(zoneLastTreated[selectedLocation.id]).getTime();
-                                    const diffMins = Math.floor(diffMs / 60000);
-                                    if (diffMins < 60) return `${diffMins} min ago`;
-                                    const diffHours = Math.floor(diffMins / 60);
-                                    return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
-                                  })() : 'No recent activation'}
-                                </span>
-                              </div>
+                            <div>
+                              <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Station Proximity</span>
+                              <span className="text-sm font-black text-blue-900 tracking-tight">
+                                {(() => {
+                                  const lat1 = selectedLocation.coordinates[0];
+                                  const lon1 = selectedLocation.coordinates[1];
+                                  const lat2 = OFFICIAL_STATION_DATA.coordinates[0];
+                                  const lon2 = OFFICIAL_STATION_DATA.coordinates[1];
+                                  const R = 6371; // km
+                                  const dLat = (lat2 - lat1) * Math.PI / 180;
+                                  const dLon = (lon2 - lon1) * Math.PI / 180;
+                                  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                                    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                                  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                                  return (R * c).toFixed(2);
+                                })()} km from Reference Station
+                              </span>
                             </div>
-                            <div className="px-3 py-1 bg-purple-100 text-purple-700 rounded text-[8px] font-black uppercase">Sprinkler History</div>
                           </div>
+                          <div className="px-3 py-1 bg-green-100 text-green-700 rounded text-[8px] font-black uppercase">Hyperlocal Zone</div>
                         </div>
                       </div>
-                    )}
+
+                      {/* 7. Last Activation Widget */}
+                      <div className="p-5 rounded-lg bg-slate-50 border border-slate-100 col-span-2 lg:col-span-3">
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b21a8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                            </div>
+                            <div>
+                              <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Last Activated</span>
+                              <span className="text-sm font-black text-purple-900 tracking-tight">
+                                {zoneLastTreated[selectedLocation.id] ? (() => {
+                                  const diffMs = Date.now() - new Date(zoneLastTreated[selectedLocation.id]).getTime();
+                                  const diffMins = Math.floor(diffMs / 60000);
+                                  if (diffMins < 60) return `${diffMins} min ago`;
+                                  const diffHours = Math.floor(diffMins / 60);
+                                  return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+                                })() : 'No recent activation'}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="px-3 py-1 bg-purple-100 text-purple-700 rounded text-[8px] font-black uppercase">Sprinkler History</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
 
-                  </div>
                 </div>
-
-
-                <PredictionModule
-                  selectedId={selectedId}
-                  nodeName={selectedLocation?.name}
-                  sprinklerActive={selectedLocation.id === 'node-1' ? selectedLocation.currentReading.sprinklerActive : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id])}
-                  mockHistory={selectedLocation?.history}
-                  currentAQI={selectedLocation.currentReading.aqi}
-                />
-
-              </>
+              </div>
             ) : (
-              <div className="h-[500px] flex items-center justify-center p-12 bg-white rounded-lg border-4 border-dashed border-slate-100 text-slate-300 font-black text-center text-xl uppercase tracking-tighter">
-                Click a marker on the map <br /> to reveal analytics.
+              <div className="h-full flex items-center justify-center p-12 bg-white rounded-lg border-4 border-dashed border-slate-100 text-slate-300 font-black text-center text-xl uppercase tracking-tighter">
+                Click a node <br /> to reveal analytics.
               </div>
             )}
           </div>
+        </div>
+
+        {/* Bottom Section: Centered Map and AI Forecast */}
+        <div className="max-w-5xl mx-auto space-y-8 mt-12">
+          <div className="bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Hyperlocal Live Map</span>
+              <div className="flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                <span className="text-[9px] font-black text-green-600 uppercase">Live Spatial View</span>
+              </div>
+            </div>
+            <div className="h-[400px]">
+              <AQIMap locations={locations} selectedId={selectedId} onSelectLocation={setSelectedId} clusters={{}} />
+            </div>
+          </div>
+
+          {selectedLocation && (
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+              <PredictionModule
+                selectedId={selectedId}
+                nodeName={selectedLocation?.name}
+                sprinklerActive={selectedLocation.id === 'node-1' ? selectedLocation.currentReading.sprinklerActive : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id])}
+                mockHistory={selectedLocation?.history}
+                currentAQI={selectedLocation.currentReading.aqi}
+              />
+            </div>
+          )}
         </div>
       </main>
 

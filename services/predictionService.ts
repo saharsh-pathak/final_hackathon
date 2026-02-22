@@ -6,6 +6,8 @@ import { AQICategory } from '../types';
 export interface DataPoint {
     timestamp: number;
     aqi: number;
+    humidity: number;
+    temperature: number;
 }
 
 export interface PredictionPoint {
@@ -19,6 +21,85 @@ export interface PredictionResult {
     predictions: PredictionPoint[];
     reasoning?: string;
 }
+
+export interface AQIModel {
+    intercept: number;
+    weights: {
+        aqi: number;
+        aqi_lag1: number;
+        aqi_lag2: number;
+        aqi_lag3: number;
+        humidity: number;
+        temperature: number;
+    };
+}
+
+/**
+ * Fetches the machine learning model weights from Firebase.
+ */
+export const fetchAQIModel = async (): Promise<AQIModel | null> => {
+    try {
+        const modelRef = ref(db, "ml_models/aqi_model");
+        const snapshot = await get(modelRef);
+
+        if (!snapshot.exists()) {
+            console.warn("No ML model found in Firebase.");
+            return null;
+        }
+
+        const model = snapshot.val() as AQIModel;
+        console.log("ML MODEL FETCHED", model);
+        return model;
+    } catch (err) {
+        console.error("Error fetching ML model:", err);
+        return null;
+    }
+};
+
+/**
+ * Predicts future AQI based on ML model weights and input features.
+ */
+export const predictFutureAQI = (
+    model: AQIModel,
+    aqi: number,
+    aqi_lag1: number,
+    aqi_lag2: number,
+    aqi_lag3: number,
+    humidity: number,
+    temperature: number
+): number => {
+    const { intercept, weights } = model;
+
+    const intercept_term = Number(model.intercept ?? 0);
+    const aqi_term = Number(model.weights.aqi ?? 0) * Number(aqi);
+    const aqi_lag1_term = Number(model.weights.aqi_lag1 ?? 0) * Number(aqi_lag1);
+    const aqi_lag2_term = Number(model.weights.aqi_lag2 ?? 0) * Number(aqi_lag2);
+    const aqi_lag3_term = Number(model.weights.aqi_lag3 ?? 0) * Number(aqi_lag3);
+    const humidity_term = Number(model.weights.humidity ?? 0) * Number(humidity);
+    const temperature_term = Number(model.weights.temperature ?? 0) * Number(temperature);
+
+    const raw_prediction =
+        intercept_term +
+        aqi_term +
+        aqi_lag1_term +
+        aqi_lag2_term +
+        aqi_lag3_term +
+        humidity_term +
+        temperature_term;
+
+    console.log("PREDICTION BREAKDOWN", {
+        intercept: intercept_term,
+        aqi_term,
+        aqi_lag1_term,
+        aqi_lag2_term,
+        aqi_lag3_term,
+        humidity_term,
+        temperature_term,
+        raw_prediction
+    });
+
+    return Math.max(0, Math.min(500, Math.round(raw_prediction)));
+};
 
 /**
  * Fetches the last 50 entries from history/Node1
@@ -36,21 +117,37 @@ export const fetchNodeHistory = async (nodeId: string): Promise<DataPoint[]> => 
 
         console.log(`✅ fetchNodeHistory [${nodeId}]: Found ${snapshot.size} entries`);
 
+        const RESET_THRESHOLD_MS = 1740239400 * 1000; // 21:20 IST Feb 22 — in milliseconds
+
         const data: DataPoint[] = [];
         snapshot.forEach((child) => {
             const val = child.val();
-            const ts = Number(val.timestamp);
+            const rawTs = Number(val.timestamp);
 
-            if (!isNaN(ts) && typeof val.aqi === 'number') {
+            // 🕐 NORMALIZE: Firebase ESP stores timestamps in UNIX SECONDS.
+            // All internal math (Date.now(), chart filters, forecast) uses MILLISECONDS.
+            // Heuristic: if rawTs < 1e11, it's seconds → convert to ms.
+            const ts = rawTs < 1e11 ? rawTs * 1000 : rawTs;
+
+            // 🧹 RESET: Ignore data before 21:20 IST reset (in ms)
+            const isBeforeReset = ts < RESET_THRESHOLD_MS;
+
+            if (!isNaN(ts) && typeof val.aqi === 'number' && !isBeforeReset) {
                 data.push({
-                    timestamp: ts,
-                    aqi: val.aqi
+                    timestamp: ts, // Always milliseconds now
+                    aqi: val.aqi,
+                    humidity: val.humidity ?? 50,
+                    temperature: val.temperature ?? 25
                 });
             }
         });
 
         if (data.length === 0) {
             console.warn(`⚠️ fetchNodeHistory [${nodeId}]: No valid data points found in snapshot`);
+        }
+
+        if (nodeId === 'Node1') {
+            console.log("RAW HISTORY (timestamps in ms)", data);
         }
 
         // Ensure sorted by time
@@ -183,7 +280,11 @@ export const predictWithGemini = async (history: DataPoint[]): Promise<{ predict
             }
         `;
 
-        const result = await model.generateContent(prompt);
+        const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Gemini API timeout after 10s')), 10000)
+        );
+        const result = await Promise.race([model.generateContent(prompt), timeoutPromise]);
+
         const responseText = result.response.text();
 
         // Extract JSON from response (handling potential markdown formatting)
@@ -207,13 +308,99 @@ export const predictWithGemini = async (history: DataPoint[]): Promise<{ predict
 };
 
 /**
+ * Performs ML-based prediction using the fetched model weights.
+ */
+export const predictWithML = async (history: DataPoint[]): Promise<{ predictions: PredictionPoint[], reasoning: string } | null> => {
+    try {
+        const model = await fetchAQIModel();
+        if (!model || history.length === 0) return null;
+
+        const sorted = [...history].sort((a, b) => b.timestamp - a.timestamp);
+
+        const current = sorted[0];
+        const aqi = Number(current.aqi ?? 0);
+        const aqi_lag1 = Number(sorted[1]?.aqi ?? aqi);
+        const aqi_lag2 = Number(sorted[2]?.aqi ?? aqi);
+        const aqi_lag3 = Number(sorted[3]?.aqi ?? aqi);
+
+        // Safer defaults (50, 25) to balance the negative intercept (-136) if data is missing or 0
+        const humidity = Number(current.humidity && current.humidity > 0 ? current.humidity : 50);
+        const temperature = Number(current.temperature && current.temperature > 0 ? current.temperature : 25);
+
+        console.log("MODEL INPUT FEATURES", {
+            aqi,
+            aqi_lag1,
+            aqi_lag2,
+            aqi_lag3,
+            humidity,
+            temperature
+        });
+
+        let predictedAQIValue = predictFutureAQI(
+            model,
+            aqi,
+            aqi_lag1,
+            aqi_lag2,
+            aqi_lag3,
+            humidity,
+            temperature
+        );
+
+        // Final safety check
+        if (isNaN(predictedAQIValue)) {
+            console.warn("ML Prediction resulted in NaN, falling back to current AQI.");
+            predictedAQIValue = aqi;
+        }
+
+        console.log("PREDICTED FUTURE AQI (30 min)", predictedAQIValue);
+
+        const latestTimestamp = history[history.length - 1].timestamp;
+        const predictions: PredictionPoint[] = [];
+
+        for (let i = 1; i <= 6; i++) {
+            predictions.push({
+                timestamp: new Date(latestTimestamp + i * 5 * 60000).toISOString(),
+                aqi: predictedAQIValue,
+                type: 'forecast',
+                isAI: true
+            });
+        }
+
+        return {
+            predictions,
+            reasoning: "ML Regression Model (Weights: Firebase)"
+        };
+    } catch (e) {
+        console.error("ML Prediction Error:", e);
+        return null;
+    }
+};
+
+/**
  * Generates predictions for the next 30 minutes.
  * Attempts Gemini first, falls back to linear regression.
  */
 export const predictNext30Minutes = async (history: DataPoint[]): Promise<{ predictions: PredictionPoint[], reasoning?: string }> => {
     if (!history || history.length === 0) return { predictions: [] };
 
-    // Try Gemini first if it's Node 1 (has real data)
+    const latest = history[history.length - 1];
+    if (isNaN(latest?.aqi)) {
+        console.log("🚫 Sensor Disconnected (NaN): Not performing AI Forecast.");
+        return {
+            predictions: [],
+            reasoning: "Sensor is currently disconnected. AI Forecast is disabled."
+        };
+    }
+
+    // 1. Try Firebase ML Model First
+    try {
+        const mlResult = await predictWithML(history);
+        if (mlResult) return mlResult;
+    } catch (e) {
+        console.warn("ML Prediction failed, trying Gemini...", e);
+    }
+
+    // 2. Try Gemini Second
     try {
         const aiResult = await predictWithGemini(history);
         return aiResult;
