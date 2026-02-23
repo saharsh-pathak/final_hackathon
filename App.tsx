@@ -595,7 +595,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen pb-12 bg-slate-50">
-      <header className="relative bg-white border-b border-slate-200 px-4 py-4 md:px-8">
+      <header className="relative bg-white border-b border-slate-200 px-4 py-5 md:px-8">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4 relative">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-900 rounded-lg shadow-lg">
@@ -621,14 +621,14 @@ const App: React.FC = () => {
 
           <div className="flex items-center gap-6">
             {/* Firebase Live Status Indicator */}
-            <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200 shadow-sm">
-              <div className={`h-1.5 w-1.5 rounded-full ${node1Connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+            <div className="flex items-center gap-2 bg-slate-100 px-3 py-2 rounded-full border border-slate-200 shadow-sm">
+              <div className={`h-2 w-2 rounded-full ${node1Connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+              <span className="text-xs font-black text-slate-500 uppercase tracking-widest">
                 {node1Connected ? 'Node 1: Live' : 'Node 1: Offline'}
               </span>
             </div>
             <div className="text-right">
-              <span className="text-[8px] font-black text-slate-400 uppercase block">Colony Average</span>
+              <span className="text-xs font-black text-slate-400 uppercase block mb-1">Colony Average</span>
               <span className="text-xl font-black text-slate-900 tracking-tighter">{colonyAverageAQI} AQI</span>
             </div>
           </div>
@@ -670,23 +670,23 @@ const App: React.FC = () => {
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                           <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
                         </span>
-                        <span className="text-[8px] font-black text-green-600 uppercase">LIVE</span>
+                        <span className="text-xs font-black text-green-600 uppercase" style={{ fontSize: '0.65rem' }}>LIVE</span>
                       </div>
                     )}
-                    <div className="flex justify-between items-start mb-2">
-                      <h4 className="text-[9px] font-black text-slate-500 line-clamp-1 uppercase tracking-tight">{loc.name}</h4>
+                    <div className="flex justify-between items-start mb-3">
+                      <h4 className="text-xs font-black text-slate-500 line-clamp-1 uppercase tracking-tight" style={{ fontSize: '0.65rem' }}>{loc.name}</h4>
                     </div>
-                    <div className="text-2xl font-black text-slate-900 tracking-tighter mb-1 mt-auto">
-                      {isNaN(currentAqi) ? 'NaN' : currentAqi} <span className="text-[8px] font-black text-slate-300 uppercase">AQI</span>
+                    <div className="text-2xl font-black text-slate-900 tracking-tighter mb-2 mt-auto">
+                      {isNaN(currentAqi) ? 'NaN' : currentAqi} <span className="text-[9px] font-black text-slate-300 uppercase">AQI</span>
                     </div>
-                    <div className={`text-[8px] font-black uppercase tracking-widest ${isNaN(currentAqi) ? 'text-slate-300' : (info?.textColor || 'text-slate-400')}`}>
+                    <div className={`text-[9px] font-black uppercase tracking-widest ${isNaN(currentAqi) ? 'text-slate-300' : (info?.textColor || 'text-slate-400')}`}>
                       {isNaN(currentAqi) ? 'Offline' : currentCategory}
                     </div>
 
                     {isNode1 && (
                       <div className="mt-3 pt-3 border-t border-slate-100">
                         <div className="flex items-center justify-between">
-                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Sprinkler</span>
+                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Sprinkler</span>
                           <div className="flex items-center gap-1.5">
                             <span className={`flex h-1.5 w-1.5 rounded-full ${loc.currentReading.sprinklerActive ? 'bg-green-500 animate-pulse' : 'bg-slate-300'}`}></span>
                             <span className={`text-[9px] font-black uppercase ${loc.currentReading.sprinklerActive ? 'text-green-600' : 'text-slate-500'}`}>
@@ -724,7 +724,7 @@ const App: React.FC = () => {
                 <div className="p-8">
                   <div className="flex justify-between items-start mb-8">
                     <div>
-                      <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-2 block">
+                      <span className="text-xs font-black text-blue-600 uppercase tracking-widest mb-2 block">
                         {selectedLocation.type === 'OFFICIAL' ? 'Official Reference' : 'Hyperlocal Node'}
                       </span>
                       <h2 className="text-2xl font-black text-slate-900 leading-tight">{selectedLocation.name}</h2>
@@ -732,24 +732,24 @@ const App: React.FC = () => {
                     </div>
                     <div className={`px-6 py-4 rounded-lg text-center ${getAqiInfo(getCategoryFromAQI(selectedLocation.currentReading.aqi))?.color || 'bg-slate-400'} text-white shadow-2xl`}>
                       <div className="text-4xl font-black tracking-tighter">{selectedLocation.currentReading.aqi}</div>
-                      <div className="text-[9px] font-black uppercase tracking-widest opacity-80 mt-1">AQI</div>
+                      <div className="text-xs font-black uppercase tracking-widest opacity-80 mt-1">AQI</div>
                     </div>
                   </div>
 
                   {selectedLocation.type === 'OFFICIAL' ? (
                     <div className="bg-slate-50 rounded-lg p-6 border border-slate-100 mb-8">
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Official Station Metadata</span>
+                      <span className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-4">Official Station Metadata</span>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Operator</p>
-                          <p className="text-xs font-black text-slate-800">DPCC / CPCB</p>
+                          <p className="text-xs font-black text-slate-400 uppercase mb-1.5">Operator</p>
+                          <p className="text-sm font-semibold text-slate-800">DPCC / CPCB</p>
                         </div>
                         <div>
-                          <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Radius</p>
-                          <p className="text-xs font-black text-slate-800">5.0 Kilometers</p>
+                          <p className="text-xs font-black text-slate-400 uppercase mb-1.5">Radius</p>
+                          <p className="text-sm font-semibold text-slate-800">5.0 Kilometers</p>
                         </div>
                         <div className="col-span-2">
-                          <p className="text-[8px] font-black text-slate-400 uppercase mb-2">Measured Pollutants</p>
+                          <p className="text-xs font-black text-slate-400 uppercase mb-2">Measured Pollutants</p>
                           <div className="flex flex-wrap gap-1.5">
                             {selectedLocation.officialData?.pollutants.map(p => (
                               <span key={p} className="px-2 py-1 bg-white text-[8px] font-black rounded-lg border border-slate-200">{p}</span>
@@ -759,10 +759,10 @@ const App: React.FC = () => {
                       </div>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
+                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
                       {/* 1. PM2.5 for ALL nodes */}
                       <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
-                        <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">PM2.5</span>
+                        <span className="text-xs font-black text-slate-400 uppercase block mb-2">PM2.5</span>
                         <span className="text-xl font-black text-slate-800">
                           {selectedLocation.currentReading.pm25 ? selectedLocation.currentReading.pm25.toFixed(2) : '0.00'}
                         </span>
@@ -770,7 +770,7 @@ const App: React.FC = () => {
 
                       {/* 2. PM10: 0.00 for Node 1, real value for others */}
                       <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
-                        <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">PM10</span>
+                        <span className="text-xs font-black text-slate-400 uppercase block mb-2">PM10</span>
                         <span className="text-xl font-black text-slate-800">
                           {selectedLocation.id === 'node-1' ? '0.00' : (selectedLocation.currentReading.pm10 ? selectedLocation.currentReading.pm10.toFixed(2) : '0.00')}
                         </span>
@@ -778,13 +778,13 @@ const App: React.FC = () => {
 
                       {/* 3. Humidity */}
                       <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
-                        <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Humidity</span>
+                        <span className="text-xs font-black text-slate-400 uppercase block mb-2">Humidity</span>
                         <span className="text-xl font-black text-slate-800">{selectedLocation.currentReading.humidity?.toFixed(1) || '--'}%</span>
                       </div>
 
                       {/* 4. Temperature */}
                       <div className="p-5 rounded-lg bg-blue-50 border border-blue-100">
-                        <span className="text-[9px] font-black text-blue-400 uppercase block mb-1">Temperature</span>
+                        <span className="text-xs font-black text-blue-400 uppercase block mb-2">Temperature</span>
                         <span className="text-xl font-black text-blue-800">
                           {selectedLocation.currentReading.temperature
                             ? selectedLocation.currentReading.temperature.toFixed(1) + '°C'
@@ -797,7 +797,7 @@ const App: React.FC = () => {
                         ? 'bg-green-50 border-green-200'
                         : 'bg-slate-50 border-slate-100'
                         }`}>
-                        <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Sprinkler Status</span>
+                        <span className="text-xs font-black text-slate-400 uppercase block mb-2">Sprinkler Status</span>
                         <div className="flex items-center gap-2">
                           <span className={`w-2.5 h-2.5 rounded-full ${(selectedLocation.id === 'node-1' ? selectedLocation.currentReading.sprinklerActive : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]))
                             ? 'bg-green-500 animate-pulse'
@@ -821,7 +821,7 @@ const App: React.FC = () => {
                               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1e3a8a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="m16 10-4 4-4-4" /></svg>
                             </div>
                             <div>
-                              <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Station Proximity</span>
+                              <span className="text-xs font-black text-slate-400 uppercase block mb-1.5">Station Proximity</span>
                               <span className="text-sm font-black text-blue-900 tracking-tight">
                                 {(() => {
                                   const lat1 = selectedLocation.coordinates[0];
@@ -852,7 +852,7 @@ const App: React.FC = () => {
                               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b21a8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
                             </div>
                             <div>
-                              <span className="text-[9px] font-black text-slate-400 uppercase block mb-1">Last Activated</span>
+                              <span className="text-xs font-black text-slate-400 uppercase block mb-1.5">Last Activated</span>
                               <span className="text-sm font-black text-purple-900 tracking-tight">
                                 {zoneLastTreated[selectedLocation.id] ? (() => {
                                   const diffMs = Date.now() - new Date(zoneLastTreated[selectedLocation.id]).getTime();
