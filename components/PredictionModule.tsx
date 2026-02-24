@@ -379,57 +379,59 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
 
     // ─── Render ───────────────────────────────────────────────────────────────
     return (
-        <div className="bg-white rounded-lg p-7 border border-slate-200 shadow-sm flex flex-col h-full max-h-[600px]">
-
-            {/* Header */}
+        <div className="bg-white rounded-xl p-8 shadow-md border border-slate-200 h-full flex flex-col">
             <div className="flex items-center justify-between mb-6">
                 <div>
-                    <h3 className="text-xs font-black text-blue-600 uppercase tracking-widest block mb-2">Forecast</h3>
-                    <h2 className="text-xl font-black text-slate-900 leading-tight">{nodeName || 'Node'} Forecast</h2>
+                    <h2 className="text-xl font-bold text-slate-800">Predictive <span className="text-purple-600">Intelligence</span></h2>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Spatial AQI Forecasting Engine</p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
                     <div className="flex items-center gap-1.5">
-                        <span className="w-2.5 h-0.5 bg-blue-500 inline-block"></span>
-                        <span className="text-xs font-black text-slate-400">Trend</span>
+                        <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Trend</span>
                     </div>
-                    {nodeStatus === 'forecast_ready' && (
-                        <div className="flex items-center gap-1.5">
-                            <span className="w-2.5 h-0.5 border-t-2 border-dashed border-purple-500 inline-block"></span>
-                            <span className="text-xs font-black text-slate-400">AI</span>
-                        </div>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse"></span>
+                        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">AI</span>
+                    </div>
                 </div>
             </div>
 
             {/* Mitigation banner */}
             {sprinklerActive && (
-                <div className="mb-5 px-4 py-3 bg-green-50 border border-green-100 rounded-lg flex items-center gap-2">
-                    <div className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                <div className="mb-4 px-4 py-2 bg-green-50 border border-green-100 rounded-lg flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
+                        <span className="text-[9px] font-bold text-green-700 uppercase tracking-wider">Mist Intervention Active</span>
                     </div>
-                    <span className="text-xs font-black text-green-700 uppercase tracking-widest">Mitigation Active</span>
+                    <span className="text-[8px] font-bold text-green-500 uppercase">Optimizing</span>
                 </div>
             )}
 
             {/* State-aware chart */}
-            {renderChartArea()}
-
-
+            <div className="flex-1 min-h-[220px]">
+                {renderChartArea()}
+            </div>
 
             {/* 30-min Forecast breakdown */}
             {forecastBreakdown.length > 0 && nodeStatus === 'forecast_ready' && (
-                <div className="mt-5">
-                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">30m Forecast Breakdown</h3>
-                    <div className="grid grid-cols-6 gap-1.5">
+                <div className="mt-6">
+                    <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">30m Forecast Sequence</h3>
+                        <div className="h-px flex-1 mx-3 bg-slate-100"></div>
+                    </div>
+                    <div className="grid grid-cols-6 gap-2">
                         {forecastBreakdown.map((p: any, i: number) => {
                             const category = NAQI_BREAKPOINTS.find(b => p.forecastAqi >= b.minAQI && p.forecastAqi <= b.maxAQI);
                             return (
-                                <div key={i} className="bg-slate-50 rounded-md p-2 border border-slate-100 text-center">
-                                    <div className="text-[10px] font-black text-slate-400 uppercase mb-1">+{(i + 1) * 5}m</div>
-                                    <div className="text-sm font-black text-slate-900">{Math.round(p.forecastAqi)}</div>
-                                    <div className={`text-[9px] font-black uppercase px-1 py-0.5 rounded-sm inline-block ${category?.color || 'bg-slate-200'} text-slate-900 mt-1`}>
-                                        {category?.category.split(' ')[0]}
+                                <div key={i} className="bg-slate-50 rounded-xl p-2.5 border border-slate-100 text-center hover:bg-white hover:border-purple-200 transition-all">
+                                    <div className="text-[8px] font-bold text-slate-400 uppercase mb-1">+{i * 5 + 5}m</div>
+                                    <div className="text-sm font-bold text-slate-800 mb-1">{Math.round(p.forecastAqi)}</div>
+                                    <div className="w-full h-1 bg-slate-200 rounded-full overflow-hidden">
+                                        <div
+                                            className={`h-full ${category?.color || 'bg-slate-400'}`}
+                                            style={{ width: `${Math.min(100, (p.forecastAqi / 250) * 100)}%` }}
+                                        />
                                     </div>
                                 </div>
                             );
@@ -440,12 +442,9 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
 
             {/* Footer — only when sensor is live */}
             {(nodeStatus === 'forecast_ready' || nodeStatus === 'live_insufficient') && (
-                <div className="mt-auto flex justify-between items-center text-xs font-semibold text-slate-400 uppercase tracking-widest border-t border-slate-100 pt-4 mt-5">
-                    <span>Refreshed: {lastUpdate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                    <span className="flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse"></span>
-                        Next Update: {new Date(lastUpdate.getTime() + 5 * 60 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
+                <div className="mt-6 flex justify-between items-center text-[8px] font-bold text-slate-400 uppercase tracking-wider border-t border-slate-100 pt-4">
+                    <span>Last Sync: {lastUpdate.toLocaleTimeString()}</span>
+                    <span>Next Refresh: {new Date(lastUpdate.getTime() + 5 * 60 * 1000).toLocaleTimeString()}</span>
                 </div>
             )}
 

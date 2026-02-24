@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef, useState } from 'react';
-import { LocationData } from '../types';
+import { LocationData, AQICategory } from '../types';
 import { NAQI_BREAKPOINTS, OFFICIAL_STATION_DATA, MAP_CENTER, COLONY_POLYGON } from '../constants';
 
 interface AQIMapProps {
@@ -47,8 +47,8 @@ const AQIMap: React.FC<AQIMapProps> = ({ locations, selectedId, onSelectLocation
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      attribution: '© CARTO',
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap contributors © CARTO',
       subdomains: 'abcd',
       maxZoom: 20
     }).addTo(map);
@@ -64,6 +64,11 @@ const AQIMap: React.FC<AQIMapProps> = ({ locations, selectedId, onSelectLocation
     layerRef.current['boundary'] = boundary;
 
     setMapReady(true);
+
+    // Common fix for rendering issues in flex/grid containers
+    setTimeout(() => {
+      if (mapRef.current) mapRef.current.invalidateSize();
+    }, 1000);
 
     return () => {
       if (mapRef.current) {
@@ -98,54 +103,53 @@ const AQIMap: React.FC<AQIMapProps> = ({ locations, selectedId, onSelectLocation
     const loc = OFFICIAL_STATION_DATA;
     const latLng = L.latLng(loc.coordinates[0], loc.coordinates[1]);
 
+    // Dynamic color based on official AQI category
+    const categoryInfo = NAQI_BREAKPOINTS.find(b => loc.currentReading.aqi >= b.minAQI && loc.currentReading.aqi <= b.maxAQI);
+    const accentColor = categoryInfo?.category === AQICategory.POOR ? '#f97316' :
+      categoryInfo?.category === AQICategory.VERY_POOR ? '#ef4444' :
+        categoryInfo?.category === AQICategory.SEVERE ? '#7f1d1d' : '#1e3a8a';
+
     const markerHtml = `
-        <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: 16px; border: 4px solid #1e3a8a; box-shadow: 0 15px 25px -5px rgba(0, 0, 0, 0.2); background-color: white; cursor: pointer;">
-          <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1e3a8a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M3 7v1a3 3 0 0 0 6 0V7m0 1a3 3 0 0 0 6 0V7m0 1a3 3 0 0 0 6 0V7H3"/><path d="M5 21V7"/><path d="M19 21V7"/></svg>
-              <span style="font-size: 8px; font-weight: 900; color: #1e3a8a; margin-top: 2px;">CPCB</span>
-          </div>
-          <div style="position: absolute; -top: 10px; -right: 10px; background-color: #1e3a8a; color: white; font-size: 10px; font-weight: 900; padding: 2px 6px; border-radius: 10px; border: 2px solid white; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); transform: translate(50%, -50%);">
-            REF
-          </div>
+        <div style="width: 40px; height: 40px; border-radius: 50%; background-color: #0f172a; border: 2.5px solid white; display: flex; align-items: center; justify-content: center; color: white; font-family: 'Inter', sans-serif; font-weight: 900; font-size: 14px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); position: relative;">
+          ${loc.currentReading.aqi}
+          <div style="position: absolute; top: -4px; right: -4px; background: #1e3a8a; color: white; border-radius: 4px; padding: 1px 4px; font-size: 7px; font-weight: 900; border: 1.5px solid white; letter-spacing: 0.05em;">BASE</div>
         </div>
       `;
-    const icon = L.divIcon({ className: 'official-marker', html: markerHtml, iconSize: [56, 56], iconAnchor: [28, 28] });
+    const icon = L.divIcon({ className: 'official-marker', html: markerHtml, iconSize: [40, 40], iconAnchor: [20, 20] });
     const marker = L.marker(latLng, { icon, zIndexOffset: 1000 }).addTo(map);
-    marker.bindPopup(`<div style="padding: 10px; font-family: 'Inter', sans-serif;"><h3 style="font-weight: 900; color: #1e3a8a; text-transform: uppercase; font-size: 12px; margin-bottom: 4px;">${loc.officialData?.name}</h3><p style="font-size: 10px; color: #64748b; font-weight: 700; margin-bottom: 8px;">${loc.officialData?.type}</p></div>`);
+    marker.bindPopup(`<div style="padding: 10px; font-family: sans-serif;"><h3 style="font-weight: 800; color: #1e3a8a; text-transform: uppercase; font-size: 12px; margin-bottom: 4px;">${loc.officialData?.name}</h3><p style="font-size: 10px; color: #64748b; font-weight: 700;">Reference Station</p></div>`);
     markersRef.current[loc.id] = marker;
 
     // Ensure circle layer exists
     if (!layerRef.current['official-radius']) {
-      const circle = L.circle(latLng, { radius: loc.officialData?.coverageRadius * 1000, color: '#1e3a8a', weight: 1, opacity: 0.2, fillOpacity: 0.05, dashArray: '10, 10' }).addTo(map);
+      const circle = L.circle(latLng, { radius: loc.officialData?.coverageRadius * 1000, color: '#1e3a8a', weight: 2, opacity: 0.3, fillOpacity: 0.05, dashArray: '10, 15', lineCap: 'round' }).addTo(map);
       layerRef.current['official-radius'] = circle;
     }
 
     // 2. Render TEMP Nodes (Permanently Visible)
     locations.filter(l => l.type === 'TEMP_NODE').forEach((loc) => {
       const color = getColor(loc.currentReading.category);
+      const isSelected = loc.id === selectedId;
       const isSprinklerActive = loc.currentReading.sprinklerActive;
       const latLng = L.latLng(Number(loc.coordinates[0]), Number(loc.coordinates[1]));
 
       const markerHtml = `
-        <div style="position: relative; width: 44px; height: 44px;">
-          ${isSprinklerActive ? `
-            <div class="sprinkler-ripple" style="position: absolute; top: -10px; left: -10px; right: -10px; bottom: -10px; border-radius: 50%; background: rgba(59, 130, 246, 0.4); z-index: -1;"></div>
-            <div class="mist-overlay" style="position: absolute; top: -20px; left: -20px; width: 84px; height: 84px; background: radial-gradient(circle, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0) 70%); border-radius: 50%; pointer-events: none; z-index: 1;"></div>
-          ` : ''}
-          <div style="width: 44px; height: 44px; border-radius: 50%; border: 4px solid white; background-color: ${color}; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; font-size: 12px; box-shadow: ${isSprinklerActive ? '0 0 20px #3b82f6' : '0 4px 6px -1px rgba(0,0,0,0.1)'}; relative; z-index: 2;">
+        <div style="position: relative; width: 32px; height: 32px;">
+          ${isSprinklerActive ? '<div class="sprinkler-ripple" style="position: absolute; top: -8px; left: -8px; right: -8px; bottom: -8px; border-radius: 50%; background: rgba(59, 130, 246, 0.4); z-index: -1;"></div>' : ''}
+          <div style="width: 32px; height: 32px; border-radius: 50%; border: 2px solid white; background-color: ${color}; display: flex; align-items: center; justify-content: center; color: white; font-weight: 800; font-size: 11px; box-shadow: ${isSelected ? '0 0 0 3px rgba(59, 130, 246, 0.5)' : '0 2px 4px rgba(0,0,0,0.2)'}; relative; z-index: 2;">
             ${loc.currentReading.aqi}
           </div>
         </div>
       `;
 
-      const icon = L.divIcon({ className: 'temp-marker', html: markerHtml, iconSize: [44, 44], iconAnchor: [22, 22] });
-      const marker = L.marker(latLng, { icon, zIndexOffset: 500 }).addTo(map).on('click', () => onSelectLocation(loc.id));
+      const icon = L.divIcon({ className: 'temp-marker', html: markerHtml, iconSize: [52, 52], iconAnchor: [26, 26] });
+      const marker = L.marker(latLng, { icon, zIndexOffset: isSelected ? 800 : 500 }).addTo(map).on('click', () => onSelectLocation(loc.id));
       markersRef.current[loc.id] = marker;
 
       // Flow lines always visible
       const officialLatLng = L.latLng(OFFICIAL_STATION_DATA.coordinates[0], OFFICIAL_STATION_DATA.coordinates[1]);
       const polyline = L.polyline([L.latLng(loc.coordinates[0], loc.coordinates[1]), officialLatLng], {
-        color: '#1e3a8a', weight: 1, opacity: 0.15, dashArray: '4, 8', className: 'data-flow-line'
+        color: '#1e3a8a', weight: 1.5, opacity: 0.1, dashArray: '6, 12', className: 'data-flow-line', lineCap: 'round'
       }).addTo(map);
       markersRef.current['flow-' + loc.id] = polyline;
     });
@@ -153,31 +157,39 @@ const AQIMap: React.FC<AQIMapProps> = ({ locations, selectedId, onSelectLocation
   }, [locations, selectedId, onSelectLocation, mapReady]);
 
   return (
-    <div className="relative w-full h-[550px] rounded-lg overflow-hidden shadow-2xl border-4 border-white">
+    <div className="relative w-full h-full rounded-lg overflow-hidden border border-slate-200">
       <style>{`
         @keyframes sprinklerRipple {
-          0% { transform: scale(0.8); opacity: 0.8; }
-          100% { transform: scale(1.5); opacity: 0; }
+          0% { transform: scale(0.9); opacity: 0.7; }
+          100% { transform: scale(1.6); opacity: 0; }
         }
         .sprinkler-ripple {
-          animation: sprinklerRipple 2s infinite ease-out;
+          animation: sprinklerRipple 2.5s infinite ease-out;
         }
         @keyframes mistFlow {
-          0% { transform: translate(-5%, -5%) scale(1); opacity: 0.4; }
-          50% { transform: translate(5%, 5%) scale(1.1); opacity: 0.6; }
-          100% { transform: translate(-5%, -5%) scale(1); opacity: 0.4; }
+          0% { transform: translate(-8%, -8%) scale(1); opacity: 0.5; }
+          50% { transform: translate(8%, 8%) scale(1.15); opacity: 0.7; }
+          100% { transform: translate(-8%, -8%) scale(1); opacity: 0.5; }
         }
         .mist-overlay {
-          animation: mistFlow 4s infinite ease-in-out;
+          animation: mistFlow 5s infinite ease-in-out;
+        }
+        .leaflet-popup-content-wrapper {
+          border-radius: 24px !important;
+          padding: 8px !important;
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15) !important;
+        }
+        .leaflet-popup-tip {
+          background: white !important;
         }
       `}</style>
-      <div ref={mapContainerRef} className="w-full h-full bg-slate-50" />
+      <div ref={mapContainerRef} className="w-full h-full bg-[#f8fafc]" />
 
-      {/* Legend & UI Overlays */}
-      {/* Legend & UI Overlays REMOVED per user request */}
-
-      <div className="absolute bottom-6 left-6 z-[1000] bg-white/90 backdrop-blur-md px-4 py-2 rounded-lg shadow-lg border border-slate-200">
-        <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Network Coverage: <span className="text-blue-900">Mayur Vihar Colony Zone 1</span></span>
+      <div className="absolute top-4 left-4 z-[1000] bg-white/90 px-3 py-1.5 rounded-lg shadow-md border border-slate-200">
+        <div className="flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+          <span className="text-[9px] font-bold text-slate-800 uppercase tracking-wider">Mesh Network Active: SECTOR A</span>
+        </div>
       </div>
     </div>
   );

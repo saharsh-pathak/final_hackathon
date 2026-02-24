@@ -610,65 +610,48 @@ const App: React.FC = () => {
 
 
   return (
-    <div className="min-h-screen pb-12 bg-slate-50">
-      <header className="relative bg-white border-b border-slate-200 px-4 py-5 md:px-8">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4 relative">
+    <div className="min-h-screen pb-20 bg-[#f8fafc]">
+      <header className="sticky top-0 z-[1000] bg-white border-b border-slate-200 px-4 py-3 md:px-8">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-slate-700 rounded-lg shadow-lg">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" viewBox="0 0 64 64" fill="none">
-                {/* Cloud outline */}
-                <path d="M18 38c-5.5 0-10-4.5-10-10 0-4.8 3.4-8.8 8-9.8 0-0.1 0-0.1 0-0.2 0-7.2 5.8-13 13-13 5.7 0 10.5 3.6 12.3 8.7C43 12.6 45 12 47 12c6.6 0 12 5.4 12 12 0 0.7-0.1 1.4-0.2 2.1C61.5 27.5 63 30.5 63 34c0 5.5-4.5 10-10 10H18z"
-                  stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                {/* Mist droplets - triangle pattern */}
-                <circle cx="27" cy="48" r="2" fill="#38bdf8" />
-                <circle cx="33" cy="48" r="2" fill="#38bdf8" />
-                <circle cx="39" cy="48" r="2" fill="#38bdf8" />
-                <circle cx="30" cy="53" r="2" fill="#38bdf8" />
-                <circle cx="36" cy="53" r="2" fill="#38bdf8" />
-                <circle cx="33" cy="58" r="2" fill="#38bdf8" />
-              </svg>
-            </div>
+
             <div>
-              <h1 className="text-xl font-black text-slate-900 tracking-tighter uppercase leading-none">MistMinds</h1>
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">MistMinds</h1>
+              <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Hyperlocal AQI Control</p>
             </div>
           </div>
 
-          {/* 1. Time Display Widget - Centered */}
-          <div className="hidden md:absolute md:left-1/2 md:-translate-x-1/2 md:block px-6 py-2 bg-slate-100/80 backdrop-blur rounded-full border border-slate-200 shadow-sm">
-            <div className="flex flex-col items-center">
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-0.5" style={{ fontSize: '0.6rem' }}>Time</span>
-              <span className="text-xl font-black text-slate-800 tracking-widest font-mono leading-none">
-                {time.toLocaleTimeString('en-US', { hour12: false })}
-              </span>
-            </div>
+          <div className="hidden md:flex flex-col items-center">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-1">System Time</span>
+            <span className="text-2xl font-black text-slate-900 tracking-tighter font-mono">
+              {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+            </span>
           </div>
 
-
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4">
             <div className="text-right">
-              <span className="text-xs font-black text-slate-400 uppercase block mb-1">Colony Average</span>
-              <span className="text-xl font-black text-slate-900 tracking-tighter">{colonyAverageAQI} AQI</span>
+              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Colony Average</span>
+              <span className="text-lg font-bold text-slate-900">{colonyAverageAQI} <span className="text-xs font-medium text-slate-500">AQI</span></span>
             </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-8 md:px-8 space-y-8">
+      <main className="max-w-7xl mx-auto px-4 py-10 md:px-8 space-y-10">
         {/* Node Selector Dropdown */}
-        <div className="flex justify-center">
-          <div className="relative inline-flex items-center gap-2 bg-white px-2 py-1.5 rounded-full border border-slate-200 shadow-sm">
+        <div className="flex justify-start">
+          <div className="relative inline-flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm">
             {selectedId === 'node-1' && (
-              <div className={`ml-2 h-2 w-2 rounded-full shrink-0 ${node1Connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+              <div className={`h-2 w-2 rounded-full ${node1Connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
             )}
             <select
               value={selectedId || ''}
               onChange={(e) => setSelectedId(e.target.value)}
-              className="appearance-none bg-transparent text-xs font-black text-slate-600 uppercase tracking-widest pr-6 pl-2 py-1.5 cursor-pointer focus:outline-none"
-              style={{ minWidth: '200px' }}
+              className="appearance-none bg-transparent text-[11px] font-bold text-slate-600 uppercase tracking-wider pr-8 pl-1 cursor-pointer focus:outline-none"
             >
               {locations.filter(l => l.type === 'TEMP_NODE').map(loc => (
-                <option key={loc.id} value={loc.id}>
-                  {loc.name}{loc.id === 'node-1' && node1Connected ? ' ● LIVE' : ''}
+                <option key={loc.id} value={loc.id} className="normal-case text-sm tracking-normal">
+                  {loc.name}{loc.id === 'node-1' && node1Connected ? ' (Connected)' : ''}
                 </option>
               ))}
             </select>
@@ -680,165 +663,164 @@ const App: React.FC = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Left Column: Node Details */}
-          <div className="space-y-8">
+          <div className="space-y-6">
             {selectedLocation ? (
-              <div className="bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden h-full">
-
+              <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden h-full">
                 <div className="p-8">
                   <div className="flex justify-between items-start mb-8">
                     <div>
-                      <span className="text-xs font-black text-blue-600 uppercase tracking-widest mb-4 block">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold text-blue-600 bg-blue-50 border border-blue-100 uppercase tracking-wider mb-2">
                         {selectedLocation.type === 'OFFICIAL' ? 'Official Reference' : 'Hyperlocal Node'}
                       </span>
-                      <h2 className="text-2xl font-black text-slate-900 leading-tight">{selectedLocation.name}</h2>
-
+                      <h2 className="text-xl font-bold text-slate-900 leading-tight">{selectedLocation.name}</h2>
                     </div>
-                    <div className={`px-6 py-4 rounded-lg text-center ${getAqiInfo(getCategoryFromAQI(selectedLocation.currentReading.aqi))?.color || 'bg-slate-400'} text-white shadow-2xl`}>
-                      <div className="text-4xl font-black tracking-tighter">{selectedLocation.currentReading.aqi}</div>
-                      <div className="text-xs font-black uppercase tracking-widest opacity-80 mt-1">AQI</div>
+                    <div className={`px-4 py-2 rounded-lg text-center shadow-sm ${getAqiInfo(getCategoryFromAQI(selectedLocation.currentReading.aqi))?.color || 'bg-slate-400'} text-white`}>
+                      <div className="text-3xl font-bold leading-none">{selectedLocation.currentReading.aqi}</div>
+                      <div className="text-[9px] font-bold uppercase tracking-widest opacity-90 mt-1">AQI</div>
                     </div>
                   </div>
 
                   {selectedLocation.type === 'OFFICIAL' ? (
-                    <div className="bg-slate-50 rounded-lg p-6 border border-slate-100 mb-8">
-                      <span className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-4">Official Station Metadata</span>
-                      <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-slate-50 rounded-xl p-6 border border-slate-100 mb-6">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-4">Official Station Metadata</span>
+                      <div className="grid grid-cols-2 gap-6">
                         <div>
-                          <p className="text-xs font-black text-slate-400 uppercase mb-1.5">Operator</p>
-                          <p className="text-sm font-semibold text-slate-800">DPCC / CPCB</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 tracking-wider">Operator</p>
+                          <p className="text-sm font-bold text-slate-800">DPCC / CPCB</p>
                         </div>
                         <div>
-                          <p className="text-xs font-black text-slate-400 uppercase mb-1.5">Radius</p>
-                          <p className="text-sm font-semibold text-slate-800">5.0 Kilometers</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 tracking-wider">Radius</p>
+                          <p className="text-sm font-bold text-slate-800">5.0 Kilometers</p>
                         </div>
                         <div className="col-span-2">
-                          <p className="text-xs font-black text-slate-400 uppercase mb-2">Measured Pollutants</p>
-                          <div className="flex flex-wrap gap-1.5">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-wider">Pollutants</p>
+                          <div className="flex flex-wrap gap-2">
                             {selectedLocation.officialData?.pollutants.map(p => (
-                              <span key={p} className="px-2 py-1 bg-white text-[8px] font-black rounded-lg border border-slate-200">{p}</span>
+                              <span key={p} className="px-2 py-0.5 bg-white text-[9px] font-bold text-slate-600 rounded border border-slate-200 uppercase tracking-wider">{p}</span>
                             ))}
                           </div>
                         </div>
                       </div>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-                      {/* 1. PM2.5 for ALL nodes */}
-                      <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
-                        <span className="text-xs font-black text-slate-400 uppercase block mb-2">PM2.5</span>
-                        <span className="text-xl font-black text-slate-800">
-                          {selectedLocation.currentReading.pm25 ? selectedLocation.currentReading.pm25.toFixed(2) : '0.00'}
-                        </span>
+                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
+                      {/* 1. PM2.5 */}
+                      <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">PM2.5</span>
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-xl font-bold text-slate-800">
+                            {selectedLocation.currentReading.pm25 ? selectedLocation.currentReading.pm25.toFixed(1) : '0.0'}
+                          </span>
+                          <span className="text-[10px] font-medium text-slate-400">µg/m³</span>
+                        </div>
                       </div>
 
-                      {/* 2. PM10: 0.00 for Node 1, real value for others */}
-                      <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
-                        <span className="text-xs font-black text-slate-400 uppercase block mb-2">PM10</span>
-                        <span className="text-xl font-black text-slate-800">
-                          {selectedLocation.id === 'node-1' ? '0.00' : (selectedLocation.currentReading.pm10 ? selectedLocation.currentReading.pm10.toFixed(2) : '0.00')}
-                        </span>
+                      {/* 2. PM10 */}
+                      <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">PM10</span>
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-xl font-bold text-slate-800">
+                            {selectedLocation.id === 'node-1' ? '0.0' : (selectedLocation.currentReading.pm10 ? selectedLocation.currentReading.pm10.toFixed(1) : '0.0')}
+                          </span>
+                          <span className="text-[10px] font-medium text-slate-400">µg/m³</span>
+                        </div>
                       </div>
 
                       {/* 3. Humidity */}
-                      <div className="p-5 rounded-lg bg-slate-50 border border-slate-100">
-                        <span className="text-xs font-black text-slate-400 uppercase block mb-2">Humidity</span>
-                        <span className="text-xl font-black text-slate-800">{selectedLocation.currentReading.humidity?.toFixed(1) || '--'}%</span>
+                      <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Humidity</span>
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-xl font-bold text-slate-800">
+                            {selectedLocation.currentReading.humidity?.toFixed(0) || '--'}
+                          </span>
+                          <span className="text-[10px] font-medium text-slate-400">%</span>
+                        </div>
                       </div>
 
                       {/* 4. Temperature */}
-                      <div className="p-5 rounded-lg bg-blue-50 border border-blue-100">
-                        <span className="text-xs font-black text-blue-400 uppercase block mb-2">Temperature</span>
-                        <span className="text-xl font-black text-blue-800">
-                          {selectedLocation.currentReading.temperature
-                            ? selectedLocation.currentReading.temperature.toFixed(1) + '°C'
-                            : '--'}
-                        </span>
+                      <div className="p-4 rounded-xl bg-blue-50 border border-blue-100">
+                        <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider block mb-1">Temp</span>
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-xl font-bold text-blue-800">
+                            {selectedLocation.currentReading.temperature
+                              ? selectedLocation.currentReading.temperature.toFixed(1)
+                              : '--'}
+                          </span>
+                          <span className="text-[10px] font-medium text-blue-400">°C</span>
+                        </div>
                       </div>
 
-                      {/* 5. Sprinkler Status for ALL nodes */}
-                      <div className={`p-5 rounded-lg col-span-2 border ${sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]
+                      {/* 5. Sprinkler Status */}
+                      <div className={`p-4 rounded-xl col-span-2 border ${sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]
                         ? 'bg-green-50 border-green-200'
                         : 'bg-slate-50 border-slate-100'
                         }`}>
-                        <span className="text-xs font-black text-slate-400 uppercase block mb-2">Sprinkler Status</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2">Sprinkler Status</span>
                         <div className="flex items-center gap-2">
-                          <span className={`w-2.5 h-2.5 rounded-full ${(selectedLocation.id === 'node-1' ? selectedLocation.currentReading.sprinklerActive : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]))
+                          <span className={`w-2 h-2 rounded-full ${(selectedLocation.id === 'node-1' ? selectedLocation.currentReading.sprinklerActive : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]))
                             ? 'bg-green-500 animate-pulse'
                             : 'bg-slate-300'
                             }`} />
-                          <span className={`text-xl font-black ${(selectedLocation.id === 'node-1' ? selectedLocation.currentReading.sprinklerActive : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]))
+                          <span className={`text-xl font-bold ${(selectedLocation.id === 'node-1' ? selectedLocation.currentReading.sprinklerActive : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]))
                             ? 'text-green-700'
                             : 'text-slate-500'
                             }`}>
-                            {selectedLocation.id === 'node-1' ? (selectedLocation.currentReading.sprinklerActive ? 'Active' : 'Standby') : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id] ? 'Active' : 'Standby')}
+                            {selectedLocation.id === 'node-1' ? (selectedLocation.currentReading.sprinklerActive ? 'ACTIVE' : 'STANDBY') : (sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id] ? 'ACTIVE' : 'STANDBY')}
                           </span>
                         </div>
                       </div>
 
-                      {/* 6. Station Proximity (Width optimized if column span allowed?) */}
-                      {/* Currently 3 cols width in original. I'll maintain col-span-3 on large (md+), col-span-2 on mobile. */}
-                      <div className="p-5 rounded-lg bg-slate-50 border border-slate-100 col-span-2 lg:col-span-3">
-                        <div className="flex justify-between items-center">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1e3a8a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="m16 10-4 4-4-4" /></svg>
-                            </div>
-                            <div>
-                              <span className="text-xs font-black text-slate-400 uppercase block mb-1.5">Station Proximity</span>
-                              <span className="text-sm font-black text-blue-900 tracking-tight">
-                                {(() => {
-                                  const lat1 = selectedLocation.coordinates[0];
-                                  const lon1 = selectedLocation.coordinates[1];
-                                  const lat2 = OFFICIAL_STATION_DATA.coordinates[0];
-                                  const lon2 = OFFICIAL_STATION_DATA.coordinates[1];
-                                  const R = 6371; // km
-                                  const dLat = (lat2 - lat1) * Math.PI / 180;
-                                  const dLon = (lon2 - lon1) * Math.PI / 180;
-                                  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                                    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-                                  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-                                  return (R * c).toFixed(2);
-                                })()} km from Reference Station
-                              </span>
-                            </div>
+                      <div className="p-4 rounded-xl bg-white border border-slate-200 col-span-2 lg:col-span-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1d4ed8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="m16 10-4 4-4-4" /></svg>
                           </div>
-                          <div className="px-3 py-1 bg-green-100 text-green-700 rounded text-[8px] font-black uppercase">Hyperlocal Zone</div>
+                          <div>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase block tracking-wider">Proximity</span>
+                            <span className="text-sm font-bold text-slate-800">
+                              {(() => {
+                                const lat1 = selectedLocation.coordinates[0];
+                                const lon1 = selectedLocation.coordinates[1];
+                                const lat2 = OFFICIAL_STATION_DATA.coordinates[0];
+                                const lon2 = OFFICIAL_STATION_DATA.coordinates[1];
+                                const R = 6371;
+                                const dLat = (lat2 - lat1) * Math.PI / 180;
+                                const dLon = (lon2 - lon1) * Math.PI / 180;
+                                const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                                return (R * c).toFixed(2);
+                              })()} km <span className="text-slate-400">from Station</span>
+                            </span>
+                          </div>
                         </div>
                       </div>
 
-                      {/* 7. Last Activation Widget */}
-                      <div className="p-5 rounded-lg bg-slate-50 border border-slate-100 col-span-2 lg:col-span-3">
-                        <div className="flex justify-between items-center">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b21a8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-                            </div>
-                            <div>
-                              <span className="text-xs font-black text-slate-400 uppercase block mb-1.5">Last Activated</span>
-                              <span className="text-sm font-black text-purple-900 tracking-tight">
-                                {zoneLastTreated[selectedLocation.id] ? (() => {
-                                  const diffMs = Date.now() - new Date(zoneLastTreated[selectedLocation.id]).getTime();
-                                  const diffMins = Math.floor(diffMs / 60000);
-                                  if (diffMins < 60) return `${diffMins} min ago`;
-                                  const diffHours = Math.floor(diffMins / 60);
-                                  return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
-                                })() : 'No recent activation'}
-                              </span>
-                            </div>
+                      <div className="p-4 rounded-xl bg-white border border-slate-200 col-span-2 lg:col-span-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 bg-purple-50 rounded-lg flex items-center justify-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7e22ce" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
                           </div>
-                          <div className="px-3 py-1 bg-purple-100 text-purple-700 rounded text-[8px] font-black uppercase">Sprinkler History</div>
+                          <div>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase block tracking-wider">Last Treatment</span>
+                            <span className="text-sm font-bold text-slate-800">
+                              {zoneLastTreated[selectedLocation.id] ? (() => {
+                                const diffMs = Date.now() - new Date(zoneLastTreated[selectedLocation.id]).getTime();
+                                const diffMins = Math.floor(diffMs / 60000);
+                                if (diffMins < 60) return `${diffMins} mins ago`;
+                                const diffHours = Math.floor(diffMins / 60);
+                                return `${diffHours} hr${diffHours !== 1 ? 's' : ''} ago`;
+                              })() : 'No History'}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
                   )}
-
-
                 </div>
               </div>
             ) : (
-              <div className="h-full flex items-center justify-center p-12 bg-white rounded-lg border-4 border-dashed border-slate-100 text-slate-300 font-black text-center text-xl uppercase tracking-tighter">
-                Click a node <br /> to reveal analytics.
+              <div className="h-full flex items-center justify-center p-12 bg-white rounded-xl border-2 border-dashed border-slate-100 text-slate-300 font-bold text-center text-lg uppercase tracking-widest">
+                Select a node <br /> for spatial analytics
               </div>
             )}
           </div>
@@ -861,7 +843,7 @@ const App: React.FC = () => {
         </div>
 
         {/* Bottom Section: Forecast then Map */}
-        <div className="max-w-5xl mx-auto space-y-8 mt-12">
+        <div className="space-y-8">
           {selectedLocation && (
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
               <PredictionModule
@@ -876,19 +858,18 @@ const App: React.FC = () => {
 
           <div className="bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Live Map</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Live Map View</span>
               <div className="flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>
-                <span className="text-[9px] font-black text-green-600 uppercase">Live Spatial View</span>
+                <span className="text-[9px] font-bold text-green-600 uppercase">Live Spatial View</span>
               </div>
             </div>
-            <div className="h-[400px]">
+            <div className="h-[450px]">
               <AQIMap locations={locations} selectedId={selectedId} onSelectLocation={setSelectedId} clusters={{}} />
             </div>
           </div>
         </div>
       </main>
-
     </div>
   );
 };
