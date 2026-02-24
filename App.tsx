@@ -640,7 +640,7 @@ const App: React.FC = () => {
       <main className="max-w-7xl mx-auto px-4 py-10 md:px-8 space-y-10">
         {/* Node Selector Dropdown */}
         <div className="flex justify-start">
-          <div className="relative inline-flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm">
+          <div className="relative inline-flex items-center gap-2 bg-white px-3 py-1.5 rounded-none border border-slate-200 shadow-sm">
             {selectedId === 'node-1' && (
               <div className={`h-2 w-2 rounded-full ${node1Connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
             )}
@@ -665,23 +665,23 @@ const App: React.FC = () => {
           {/* Left Column: Node Details */}
           <div className="space-y-6">
             {selectedLocation ? (
-              <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden h-full">
+              <div className="bg-white rounded-none shadow-md border border-slate-200 overflow-hidden h-full">
                 <div className="p-8">
                   <div className="flex justify-between items-start mb-8">
                     <div>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold text-blue-600 bg-blue-50 border border-blue-100 uppercase tracking-wider mb-2">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-none text-[9px] font-bold text-blue-600 bg-blue-50 border border-blue-100 uppercase tracking-wider mb-2">
                         {selectedLocation.type === 'OFFICIAL' ? 'Official Reference' : 'Hyperlocal Node'}
                       </span>
                       <h2 className="text-xl font-bold text-slate-900 leading-tight">{selectedLocation.name}</h2>
                     </div>
-                    <div className={`px-4 py-2 rounded-lg text-center shadow-sm ${getAqiInfo(getCategoryFromAQI(selectedLocation.currentReading.aqi))?.color || 'bg-slate-400'} text-white`}>
+                    <div className={`px-4 py-2 rounded-none text-center shadow-sm ${getAqiInfo(getCategoryFromAQI(selectedLocation.currentReading.aqi))?.color || 'bg-slate-400'} text-white`}>
                       <div className="text-3xl font-bold leading-none">{selectedLocation.currentReading.aqi}</div>
                       <div className="text-[9px] font-bold uppercase tracking-widest opacity-90 mt-1">AQI</div>
                     </div>
                   </div>
 
                   {selectedLocation.type === 'OFFICIAL' ? (
-                    <div className="bg-slate-50 rounded-xl p-6 border border-slate-100 mb-6">
+                    <div className="bg-slate-50 rounded-none p-6 border border-slate-100 mb-6">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-4">Official Station Metadata</span>
                       <div className="grid grid-cols-2 gap-6">
                         <div>
@@ -696,7 +696,7 @@ const App: React.FC = () => {
                           <p className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-wider">Pollutants</p>
                           <div className="flex flex-wrap gap-2">
                             {selectedLocation.officialData?.pollutants.map(p => (
-                              <span key={p} className="px-2 py-0.5 bg-white text-[9px] font-bold text-slate-600 rounded border border-slate-200 uppercase tracking-wider">{p}</span>
+                              <span key={p} className="px-2 py-0.5 bg-white text-[9px] font-bold text-slate-600 rounded-none border border-slate-200 uppercase tracking-wider">{p}</span>
                             ))}
                           </div>
                         </div>
@@ -705,7 +705,7 @@ const App: React.FC = () => {
                   ) : (
                     <div className="grid grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
                       {/* 1. PM2.5 */}
-                      <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+                      <div className="p-4 rounded-none bg-slate-50 border border-slate-100">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">PM2.5</span>
                         <div className="flex items-baseline gap-1">
                           <span className="text-xl font-bold text-slate-800">
@@ -716,7 +716,7 @@ const App: React.FC = () => {
                       </div>
 
                       {/* 2. PM10 */}
-                      <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+                      <div className="p-4 rounded-none bg-slate-50 border border-slate-100">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">PM10</span>
                         <div className="flex items-baseline gap-1">
                           <span className="text-xl font-bold text-slate-800">
@@ -727,7 +727,7 @@ const App: React.FC = () => {
                       </div>
 
                       {/* 3. Humidity */}
-                      <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+                      <div className="p-4 rounded-none bg-slate-50 border border-slate-100">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Humidity</span>
                         <div className="flex items-baseline gap-1">
                           <span className="text-xl font-bold text-slate-800">
@@ -738,7 +738,7 @@ const App: React.FC = () => {
                       </div>
 
                       {/* 4. Temperature */}
-                      <div className="p-4 rounded-xl bg-blue-50 border border-blue-100">
+                      <div className="p-4 rounded-none bg-blue-50 border border-blue-100">
                         <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider block mb-1">Temp</span>
                         <div className="flex items-baseline gap-1">
                           <span className="text-xl font-bold text-blue-800">
@@ -751,7 +751,7 @@ const App: React.FC = () => {
                       </div>
 
                       {/* 5. Sprinkler Status */}
-                      <div className={`p-4 rounded-xl col-span-2 border ${sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]
+                      <div className={`p-4 rounded-none col-span-2 border ${sprinklerStatus.activeNodes && sprinklerStatus.activeNodes[selectedLocation.id]
                         ? 'bg-green-50 border-green-200'
                         : 'bg-slate-50 border-slate-100'
                         }`}>
@@ -770,9 +770,9 @@ const App: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="p-4 rounded-xl bg-white border border-slate-200 col-span-2 lg:col-span-3">
+                      <div className="p-4 rounded-none bg-white border border-slate-200 col-span-2 lg:col-span-3">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
+                          <div className="w-8 h-8 bg-blue-50 rounded-none flex items-center justify-center">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1d4ed8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="m16 10-4 4-4-4" /></svg>
                           </div>
                           <div>
@@ -795,9 +795,9 @@ const App: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="p-4 rounded-xl bg-white border border-slate-200 col-span-2 lg:col-span-3">
+                      <div className="p-4 rounded-none bg-white border border-slate-200 col-span-2 lg:col-span-3">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-purple-50 rounded-lg flex items-center justify-center">
+                          <div className="w-8 h-8 bg-purple-50 rounded-none flex items-center justify-center">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7e22ce" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
                           </div>
                           <div>

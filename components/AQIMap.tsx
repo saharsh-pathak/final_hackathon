@@ -157,7 +157,7 @@ const AQIMap: React.FC<AQIMapProps> = ({ locations, selectedId, onSelectLocation
   }, [locations, selectedId, onSelectLocation, mapReady]);
 
   return (
-    <div className="relative w-full h-full rounded-lg overflow-hidden border border-slate-200">
+    <div className="relative w-full h-full rounded-none overflow-hidden border border-slate-200">
       <style>{`
         @keyframes sprinklerRipple {
           0% { transform: scale(0.9); opacity: 0.7; }
@@ -175,7 +175,7 @@ const AQIMap: React.FC<AQIMapProps> = ({ locations, selectedId, onSelectLocation
           animation: mistFlow 5s infinite ease-in-out;
         }
         .leaflet-popup-content-wrapper {
-          border-radius: 24px !important;
+          border-radius: 0 !important;
           padding: 8px !important;
           box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15) !important;
         }
@@ -185,7 +185,7 @@ const AQIMap: React.FC<AQIMapProps> = ({ locations, selectedId, onSelectLocation
       `}</style>
       <div ref={mapContainerRef} className="w-full h-full bg-[#f8fafc]" />
 
-      <div className="absolute top-4 left-4 z-[1000] bg-white/90 px-3 py-1.5 rounded-lg shadow-md border border-slate-200">
+      <div className="absolute top-4 left-4 z-[1000] bg-white/90 px-3 py-1.5 rounded-none shadow-md border border-slate-200">
         <div className="flex items-center gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
           <span className="text-[9px] font-bold text-slate-800 uppercase tracking-wider">Mesh Network Active: SECTOR A</span>

@@ -239,10 +239,10 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
         const time = new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
         return (
-            <div className="bg-slate-900 text-white p-3 rounded-lg shadow-xl border border-slate-700">
+            <div className="bg-slate-900 text-white p-3 rounded-none shadow-xl border border-slate-700">
                 <p className="text-[10px] font-bold text-slate-400 mb-1">
                     {time}
-                    <span className={`ml-1.5 px-1 py-0.5 rounded text-[8px] font-black ${isForecast ? 'bg-purple-700 text-purple-100' : 'bg-blue-700 text-blue-100'}`}>
+                    <span className={`ml-1.5 px-1 py-0.5 rounded-none text-[8px] font-black ${isForecast ? 'bg-purple-700 text-purple-100' : 'bg-blue-700 text-blue-100'}`}>
                         {isForecast ? 'FORECAST' : 'HISTORICAL'}
                     </span>
                 </p>
@@ -250,7 +250,7 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
                     <span className="text-xl font-black">{val !== undefined ? Math.round(val) : '—'}</span>
                     <span className="text-[9px] text-slate-400 font-bold">AQI</span>
                     {category && (
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-black text-slate-900 ${category.color}`}>
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded-none font-black text-slate-900 ${category.color}`}>
                             {category.category}
                         </span>
                     )}
@@ -279,7 +279,7 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
 
                 {/* ── OFFLINE banner ── */}
                 {isOffline && (
-                    <div className="absolute top-0 left-4 right-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-red-50 border border-red-200 rounded-md">
+                    <div className="absolute top-0 left-4 right-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-red-50 border border-red-200 rounded-none">
                         <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
                         <span className="text-xs font-black text-red-600 uppercase tracking-widest">Node Disconnected</span>
                     </div>
@@ -287,7 +287,7 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
 
                 {/* ── CONNECTING banner ── */}
                 {isConnecting && (
-                    <div className="absolute top-0 left-4 right-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-md">
+                    <div className="absolute top-0 left-4 right-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-none">
                         <span className="relative flex h-1.5 w-1.5">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
                             <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500"></span>
@@ -300,7 +300,7 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
 
                 {/* ── CALIBRATING badge ── */}
                 {isInsufficient && (
-                    <div className="absolute top-0 left-4 right-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-md">
+                    <div className="absolute top-0 left-4 right-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-none">
                         <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
                         <span className="text-xs font-black text-amber-700 uppercase tracking-widest">Calibrating Forecast</span>
                     </div>
@@ -308,7 +308,7 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
 
                 {/* ── Loading spinner overlay ── */}
                 {loading && (
-                    <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 rounded-lg">
+                    <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 rounded-none">
                         <div className="w-7 h-7 border-2 border-blue-900 border-t-transparent rounded-full animate-spin"></div>
                     </div>
                 )}
@@ -318,7 +318,7 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
                     className="h-full w-full pt-7"
                     style={{
                         background: isOffline ? '#f3f4f6' : isConnecting ? '#f8fafc' : 'transparent',
-                        borderRadius: '0.5rem',
+                        borderRadius: '0',
                         transition: 'background 0.4s',
                     }}
                 >
@@ -379,13 +379,13 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
 
     // ─── Render ───────────────────────────────────────────────────────────────
     return (
-        <div className="bg-white rounded-xl p-8 shadow-md border border-slate-200 h-full flex flex-col">
+        <div className="bg-white rounded-none p-8 shadow-md border border-slate-200 h-full flex flex-col">
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h2 className="text-xl font-bold text-slate-800">Predictive <span className="text-purple-600">Intelligence</span></h2>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Spatial AQI Forecasting Engine</p>
                 </div>
-                <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
+                <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-none border border-slate-100">
                     <div className="flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full bg-blue-500"></span>
                         <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Trend</span>
@@ -399,7 +399,7 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
 
             {/* Mitigation banner */}
             {sprinklerActive && (
-                <div className="mb-4 px-4 py-2 bg-green-50 border border-green-100 rounded-lg flex items-center justify-between">
+                <div className="mb-4 px-4 py-2 bg-green-50 border border-green-100 rounded-none flex items-center justify-between">
                     <div className="flex items-center gap-2">
                         <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
                         <span className="text-[9px] font-bold text-green-700 uppercase tracking-wider">Mist Intervention Active</span>
@@ -424,10 +424,10 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
                         {forecastBreakdown.map((p: any, i: number) => {
                             const category = NAQI_BREAKPOINTS.find(b => p.forecastAqi >= b.minAQI && p.forecastAqi <= b.maxAQI);
                             return (
-                                <div key={i} className="bg-slate-50 rounded-xl p-2.5 border border-slate-100 text-center hover:bg-white hover:border-purple-200 transition-all">
+                                <div key={i} className="bg-slate-50 rounded-none p-2.5 border border-slate-100 text-center hover:bg-white hover:border-purple-200 transition-all">
                                     <div className="text-[8px] font-bold text-slate-400 uppercase mb-1">+{i * 5 + 5}m</div>
                                     <div className="text-sm font-bold text-slate-800 mb-1">{Math.round(p.forecastAqi)}</div>
-                                    <div className="w-full h-1 bg-slate-200 rounded-full overflow-hidden">
+                                    <div className="w-full h-1 bg-slate-200 rounded-none overflow-hidden">
                                         <div
                                             className={`h-full ${category?.color || 'bg-slate-400'}`}
                                             style={{ width: `${Math.min(100, (p.forecastAqi / 250) * 100)}%` }}
