@@ -302,17 +302,18 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
                             <YAxis domain={['auto', 'auto']} hide />
                             {isReady && <Tooltip content={<CustomTooltip />} />}
 
-                            {/* Historical / placeholder line */}
-                            <Line
-                                type="monotone"
-                                dataKey="historicalAqi"
-                                stroke={isOffline ? '#d1d5db' : isConnecting ? '#94a3b8' : '#3b82f6'}
-                                strokeWidth={isOffline || isConnecting ? 2 : 3}
-                                strokeDasharray={isConnecting ? '6 4' : undefined}
-                                dot={false}
-                                connectNulls={false}
-                                isAnimationActive={false}
-                            />
+                            {/* Historical line — hidden in offline/connecting states */}
+                            {!isOffline && !isConnecting && (
+                                <Line
+                                    type="monotone"
+                                    dataKey="historicalAqi"
+                                    stroke="#3b82f6"
+                                    strokeWidth={3}
+                                    dot={false}
+                                    connectNulls={false}
+                                    isAnimationActive={false}
+                                />
+                            )}
 
                             {/* AI forecast line — only when ready */}
                             {isReady && (
@@ -356,7 +357,7 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
                 <div>
-                    <h3 className="text-xs font-black text-blue-600 uppercase tracking-widest block mb-2">AI Forecast Model</h3>
+                    <h3 className="text-xs font-black text-blue-600 uppercase tracking-widest block mb-2">Forecast</h3>
                     <h2 className="text-xl font-black text-slate-900 leading-tight">{nodeName || 'Node'} Forecast</h2>
                 </div>
                 <div className="flex items-center gap-3">

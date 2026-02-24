@@ -32,6 +32,9 @@ const App: React.FC = () => {
   // ⏱️ Tracks the BROWSER-SIDE time of the last Firebase callback (not the ESP's stored timestamp)
   // This is the source of truth for the heartbeat — avoids false-positives from cached Firebase data.
   const lastDataReceivedAtRef = useRef<number>(0);
+  // 🔁 Ref mirror of node1Connected — avoids stale closure in setInterval callbacks
+  const node1ConnectedRef = useRef<boolean>(false);
+  useEffect(() => { node1ConnectedRef.current = node1Connected; }, [node1Connected]);
 
   // Ref for locations to be used in stable loops
   const locationsRef = useRef<LocationData[]>([]);
@@ -172,36 +175,49 @@ const App: React.FC = () => {
   }, []);
 
   // 💓 HEARTBEAT MONITOR: Uses browser-side lastDataReceivedAtRef to detect ESP disconnection.
-  // Runs every 5 seconds. If no Firebase callback has been received in >30s, marks node as disconnected.
+  // Runs every 5 seconds. If no Firebase LIVE callback in >45s, marks node disconnected.
   useEffect(() => {
-    const HEARTBEAT_TIMEOUT = 30000; // 30 seconds
+    const HEARTBEAT_TIMEOUT = 45_000; // 45 seconds — covers 3 missed ESP cycles (~15s each)
+
+    const markOffline = () => {
+      if (!node1ConnectedRef.current) return; // already offline
+      node1ConnectedRef.current = false;
+      setNode1Connected(false);
+      setLocations(prev => prev.map(loc =>
+        loc.id === 'node-1'
+          ? { ...loc, currentReading: { ...loc.currentReading, aqi: NaN, pm25: NaN } }
+          : loc
+      ));
+    };
+
     const interval = setInterval(() => {
-      if (lastDataReceivedAtRef.current === 0) return; // Never received any data yet
+      if (lastDataReceivedAtRef.current === 0) return; // no data ever received
 
-      const diff = Date.now() - lastDataReceivedAtRef.current;
-      if (diff > HEARTBEAT_TIMEOUT && node1Connected) {
-        console.warn(`📡 [Heartbeat] No data from ESP in ${Math.round(diff / 1000)}s. Marking Node 1 as DISCONNECTED.`);
-        setNode1Connected(false);
+      const msSinceLastUpdate = Date.now() - lastDataReceivedAtRef.current;
 
-        // Set Node 1 AQI to NaN to clearly indicate disconnection
-        setLocations(prev => prev.map(loc => {
-          if (loc.id === 'node-1') {
-            return {
-              ...loc,
-              currentReading: {
-                ...loc.currentReading,
-                aqi: NaN,
-                pm25: NaN
-              }
-            };
-          }
-          return loc;
-        }));
+      // Primary guard: no browser-side Firebase callback for >45s
+      if (msSinceLastUpdate > HEARTBEAT_TIMEOUT) {
+        markOffline();
+        return;
       }
+
+      // Secondary guard: check the ESP's own stored timestamp for staleness.
+      // If it's >3 minutes behind wall-clock time, the ESP is not writing new data.
+      setNode1LiveData(prev => {
+        if (prev) {
+          const espTs = Number(prev.timestamp);
+          const espTsMs = espTs < 1e11 ? espTs * 1000 : espTs; // normalise seconds→ms
+          const espAge = Date.now() - espTsMs;
+          if (!isNaN(espAge) && espAge > 3 * 60 * 1000) {
+            markOffline();
+          }
+        }
+        return prev; // no state change, just a read
+      });
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [node1Connected]); // Only re-run if connection status changes
+  }, []); // stable — uses refs, no stale closures
 
   useEffect(() => {
     const initData = async () => {
@@ -881,21 +897,8 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Bottom Section: Centered Map and AI Forecast */}
+        {/* Bottom Section: Forecast then Map */}
         <div className="max-w-5xl mx-auto space-y-8 mt-12">
-          <div className="bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden">
-            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Hyperlocal Live Map</span>
-              <div className="flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>
-                <span className="text-[9px] font-black text-green-600 uppercase">Live Spatial View</span>
-              </div>
-            </div>
-            <div className="h-[400px]">
-              <AQIMap locations={locations} selectedId={selectedId} onSelectLocation={setSelectedId} clusters={{}} />
-            </div>
-          </div>
-
           {selectedLocation && (
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
               <PredictionModule
@@ -907,6 +910,19 @@ const App: React.FC = () => {
               />
             </div>
           )}
+
+          <div className="bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Live Map</span>
+              <div className="flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                <span className="text-[9px] font-black text-green-600 uppercase">Live Spatial View</span>
+              </div>
+            </div>
+            <div className="h-[400px]">
+              <AQIMap locations={locations} selectedId={selectedId} onSelectLocation={setSelectedId} clusters={{}} />
+            </div>
+          </div>
         </div>
       </main>
 

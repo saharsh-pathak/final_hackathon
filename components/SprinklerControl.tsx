@@ -27,91 +27,28 @@ const SprinklerControl: React.FC<SprinklerControlProps> = ({ status, history, fo
 
     return (
         <div className="bg-white rounded-lg p-7 border border-slate-200">
-            <div className="mb-7 flex justify-between items-center">
+            <div className="mb-7">
                 <h2 className="text-xl font-black text-slate-900">Sprinkler Control</h2>
-                <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg">
-                    <button
-                        onClick={() => selectedId && onToggleMode(selectedId, true)}
-                        className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all ${isAuto ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'} ${!selectedId ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        disabled={!selectedId}
-                    >
-                        Auto
-                    </button>
-                    <button
-                        onClick={() => selectedId && onToggleMode(selectedId, false)}
-                        className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all ${!isAuto ? 'bg-white text-blue-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'} ${!selectedId ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        disabled={!selectedId}
-                    >
-                        Manual
-                    </button>
-                </div>
             </div>
 
             <div className="mb-8">
                 <div className="space-y-4">
-                    {/* Mode Specific UI */}
-                    {isAuto && selectedId ? (
-                        <div className="flex items-center justify-between p-5 bg-blue-50 rounded-lg border border-blue-100">
-                            <div>
-                                <span className="text-xs font-black text-blue-600 uppercase tracking-widest block mb-1.5">Automatic Mode</span>
-                                <span className="text-sm font-semibold text-blue-900">
-                                    {(isHardwareActive || (selectedId && status.activeNodes[selectedId])) ? 'Spraying in Progress...' : 'Active — Monitoring Continuously'}
-                                </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <span className={`w-2.5 h-2.5 rounded-sm ${(isHardwareActive || (selectedId && status.activeNodes[selectedId])) ? 'bg-green-500 animate-pulse' : 'bg-blue-500'}`} />
-                                <span className="text-xs font-black text-blue-700 uppercase tracking-widest">
-                                    {(isHardwareActive || (selectedId && status.activeNodes[selectedId])) ? 'Active' : 'Standby'}
-                                </span>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="p-5 bg-slate-50 rounded-lg border border-slate-100">
-                            <div className="flex justify-between items-start mb-4">
-                                <div>
-                                    <span className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-1.5">Manual Control</span>
-                                    <span className="text-sm font-semibold text-slate-900">
-                                        {selectedId ? `Target: ${nodeName || 'Selected Node'}` : 'Select a Node to Control'}
-                                    </span>
-                                </div>
-                                {selectedId && status.activeNodes && status.activeNodes[selectedId] && (
-                                    <div className="px-2 py-1 bg-green-100 text-green-700 rounded text-[9px] font-black uppercase">
-                                        Active ({Math.max(0, 10 - Math.floor((Date.now() - status.activeNodes[selectedId]) / 60000))}m left)
-                                    </div>
-                                )}
-                            </div>
+                    <div className="flex items-center justify-between p-5 bg-blue-50 rounded-lg border border-blue-100">
+                        <div>
 
-                            {/* Prediction System Offline badge */}
-                            <div className="flex items-center gap-2 mb-4 px-3 py-2 bg-amber-50 border border-amber-100 rounded-md">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500 shrink-0">
-                                    <line x1="1" y1="1" x2="23" y2="23" /><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01" />
-                                </svg>
-                                <span className="text-xs font-black text-amber-600 uppercase tracking-widest">Prediction System Offline — Direct Control Only</span>
-                            </div>
-
-                            {selectedId ? (
-                                status.activeNodes && status.activeNodes[selectedId] ? (
-                                    <button
-                                        onClick={() => onStop(selectedId)}
-                                        className="w-full py-3 bg-red-500 hover:bg-red-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-md"
-                                    >
-                                        STOP SPRINKLER
-                                    </button>
-                                ) : (
-                                    <button
-                                        onClick={() => onTrigger(selectedId)}
-                                        className="w-full py-3 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg"
-                                    >
-                                        START SPRINKLER
-                                    </button>
-                                )
-                            ) : (
-                                <button disabled className="w-full py-3 bg-slate-200 text-slate-400 rounded-lg text-[10px] font-black uppercase tracking-widest cursor-not-allowed">
-                                    Select Node on Map
-                                </button>
-                            )}
+                            <span className="text-sm font-semibold text-blue-900">
+                                {selectedId
+                                    ? (isHardwareActive || status.activeNodes[selectedId]) ? 'Spraying in Progress...' : 'Active — Monitoring Continuously'
+                                    : 'Select a Node to Monitor'}
+                            </span>
                         </div>
-                    )}
+                        <div className="flex items-center gap-2">
+                            <span className={`w-2.5 h-2.5 rounded-sm ${(selectedId && (isHardwareActive || status.activeNodes[selectedId])) ? 'bg-green-500 animate-pulse' : 'bg-blue-500'}`} />
+                            <span className="text-xs font-black text-blue-700 uppercase tracking-widest">
+                                {(selectedId && (isHardwareActive || status.activeNodes[selectedId])) ? 'Active' : 'Standby'}
+                            </span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
