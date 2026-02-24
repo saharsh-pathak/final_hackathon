@@ -548,7 +548,7 @@ Target: 15-30% AQI reduction per activation cycle
 
 ✅ **Hyperlocal Coverage:** Colony-level granularity (0.5-1 sq km) vs city-wide averages  
 ✅ **Active Intervention:** Not just monitoring—actively reducing pollution in real-time  
-✅ **Predictive Intelligence:** 24-hour forecasts enable proactive measures  
+✅ **AQI Prediction:** 24-hour forecasts enable proactive measures  
 ✅ **Cost-Effective:** Leverages existing water infrastructure, low-cost sensors  
 ✅ **Scalable Architecture:** Modular design allows rapid colony-by-colony deployment  
 ✅ **Data-Driven:** Algorithm-controlled activation based on multiple parameters  
@@ -681,7 +681,7 @@ TEMP AQI represents a paradigm shift from passive air quality monitoring to **ac
 
 **The Saturday prototype demonstration** will showcase the technical feasibility and user experience of this innovative system. With one real sensor node feeding live data and three simulated nodes demonstrating full-scale capability, municipal authorities will see the potential of hyperlocal air quality management.
 
-**Post-prototype, the pilot deployment** in a single Delhi colony will provide concrete evidence of TEMP AQI's effectiveness. The primary goal—**measurable 15-30% AQI reduction during intervention periods**—is achievable through optimized water-mist activation driven by real-time data and predictive intelligence.
+**Post-prototype, the pilot deployment** in a single Delhi colony will provide concrete evidence of TEMP AQI's effectiveness. The primary goal—**measurable 15-30% AQI reduction during intervention periods**—is achievable through optimized water-mist activation driven by real-time data and AQI prediction.
 
 Success in the pilot phase will pave the way for city-wide adoption, offering Delhi's municipal authorities a powerful, scalable, cost-effective tool to combat the air pollution crisis that affects millions of residents daily.
 

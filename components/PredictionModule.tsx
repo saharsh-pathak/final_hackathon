@@ -382,8 +382,7 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
         <div className="bg-white rounded-none p-8 shadow-md border border-slate-200 h-full flex flex-col">
             <div className="flex items-center justify-between mb-6">
                 <div>
-                    <h2 className="text-xl font-bold text-slate-800">Predictive <span className="text-purple-600">Intelligence</span></h2>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Spatial AQI Forecasting Engine</p>
+                    <h2 className="text-xl font-bold text-slate-800">AQI <span className="text-purple-600">Prediction</span></h2>
                 </div>
                 <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-none border border-slate-100">
                     <div className="flex items-center gap-1.5">

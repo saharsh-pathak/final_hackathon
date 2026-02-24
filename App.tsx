@@ -859,10 +859,6 @@ const App: React.FC = () => {
           <div className="bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden">
             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Live Map View</span>
-              <div className="flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"></span>
-                <span className="text-[9px] font-bold text-green-600 uppercase">Live Spatial View</span>
-              </div>
             </div>
             <div className="h-[450px]">
               <AQIMap locations={locations} selectedId={selectedId} onSelectLocation={setSelectedId} clusters={{}} />

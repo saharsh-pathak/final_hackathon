@@ -185,12 +185,7 @@ const AQIMap: React.FC<AQIMapProps> = ({ locations, selectedId, onSelectLocation
       `}</style>
       <div ref={mapContainerRef} className="w-full h-full bg-[#f8fafc]" />
 
-      <div className="absolute top-4 left-4 z-[1000] bg-white/90 px-3 py-1.5 rounded-none shadow-md border border-slate-200">
-        <div className="flex items-center gap-2">
-          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
-          <span className="text-[9px] font-bold text-slate-800 uppercase tracking-wider">Mesh Network Active: SECTOR A</span>
-        </div>
-      </div>
+
     </div>
   );
 };
