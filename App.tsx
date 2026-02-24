@@ -614,9 +614,18 @@ const App: React.FC = () => {
       <header className="relative bg-white border-b border-slate-200 px-4 py-5 md:px-8">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4 relative">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-900 rounded-lg shadow-lg">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            <div className="p-2 bg-slate-700 rounded-lg shadow-lg">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" viewBox="0 0 64 64" fill="none">
+                {/* Cloud outline */}
+                <path d="M18 38c-5.5 0-10-4.5-10-10 0-4.8 3.4-8.8 8-9.8 0-0.1 0-0.1 0-0.2 0-7.2 5.8-13 13-13 5.7 0 10.5 3.6 12.3 8.7C43 12.6 45 12 47 12c6.6 0 12 5.4 12 12 0 0.7-0.1 1.4-0.2 2.1C61.5 27.5 63 30.5 63 34c0 5.5-4.5 10-10 10H18z"
+                  stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                {/* Mist droplets - triangle pattern */}
+                <circle cx="27" cy="48" r="2" fill="#38bdf8" />
+                <circle cx="33" cy="48" r="2" fill="#38bdf8" />
+                <circle cx="39" cy="48" r="2" fill="#38bdf8" />
+                <circle cx="30" cy="53" r="2" fill="#38bdf8" />
+                <circle cx="36" cy="53" r="2" fill="#38bdf8" />
+                <circle cx="33" cy="58" r="2" fill="#38bdf8" />
               </svg>
             </div>
             <div>
@@ -627,7 +636,7 @@ const App: React.FC = () => {
           {/* 1. Time Display Widget - Centered */}
           <div className="hidden md:absolute md:left-1/2 md:-translate-x-1/2 md:block px-6 py-2 bg-slate-100/80 backdrop-blur rounded-full border border-slate-200 shadow-sm">
             <div className="flex flex-col items-center">
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-0.5" style={{ fontSize: '0.6rem' }}>Local Time</span>
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-0.5" style={{ fontSize: '0.6rem' }}>Time</span>
               <span className="text-xl font-black text-slate-800 tracking-widest font-mono leading-none">
                 {time.toLocaleTimeString('en-US', { hour12: false })}
               </span>
@@ -636,27 +645,6 @@ const App: React.FC = () => {
 
 
           <div className="flex items-center gap-6">
-            {/* Node Selector Dropdown */}
-            <div className="relative flex items-center gap-2 bg-slate-100 px-1 py-1 rounded-full border border-slate-200 shadow-sm">
-              {selectedId === 'node-1' && (
-                <div className={`ml-2 h-2 w-2 rounded-full shrink-0 ${node1Connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-              )}
-              <select
-                value={selectedId || ''}
-                onChange={(e) => setSelectedId(e.target.value)}
-                className="appearance-none bg-transparent text-xs font-black text-slate-600 uppercase tracking-widest pr-6 pl-2 py-1.5 cursor-pointer focus:outline-none"
-                style={{ minWidth: '180px' }}
-              >
-                {locations.filter(l => l.type === 'TEMP_NODE').map(loc => (
-                  <option key={loc.id} value={loc.id}>
-                    {loc.name} {loc.id === 'node-1' ? (node1Connected ? '● Live' : '● Offline') : '● Simulated'}
-                  </option>
-                ))}
-              </select>
-              <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
-                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400"><polyline points="6 9 12 15 18 9"></polyline></svg>
-              </div>
-            </div>
             <div className="text-right">
               <span className="text-xs font-black text-slate-400 uppercase block mb-1">Colony Average</span>
               <span className="text-xl font-black text-slate-900 tracking-tighter">{colonyAverageAQI} AQI</span>
@@ -666,24 +654,32 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8 md:px-8 space-y-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left Column: Sprinkler Control */}
-          <div className="space-y-8">
-            <SprinklerControl
-              status={sprinklerStatus}
-              history={sprinklerHistory}
-              forecastPeakAQI={forecastPeakAQI}
-              onTrigger={(id) => id && handleTriggerSprinkler(id, true)}
-              onStop={handleStopSprinkler}
-              onToggleMode={handleToggleMode}
-              selectedId={selectedId}
-              nodeName={selectedLocation?.name}
-              onSetThreshold={(val) => setSprinklerStatus(p => ({ ...p, threshold: val }))}
-              isHardwareActive={selectedLocation?.currentReading?.sprinklerActive}
-            />
+        {/* Node Selector Dropdown */}
+        <div className="flex justify-center">
+          <div className="relative inline-flex items-center gap-2 bg-white px-2 py-1.5 rounded-full border border-slate-200 shadow-sm">
+            {selectedId === 'node-1' && (
+              <div className={`ml-2 h-2 w-2 rounded-full shrink-0 ${node1Connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+            )}
+            <select
+              value={selectedId || ''}
+              onChange={(e) => setSelectedId(e.target.value)}
+              className="appearance-none bg-transparent text-xs font-black text-slate-600 uppercase tracking-widest pr-6 pl-2 py-1.5 cursor-pointer focus:outline-none"
+              style={{ minWidth: '200px' }}
+            >
+              {locations.filter(l => l.type === 'TEMP_NODE').map(loc => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.name}{loc.id === 'node-1' && node1Connected ? ' ● LIVE' : ''}
+                </option>
+              ))}
+            </select>
+            <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
           </div>
+        </div>
 
-          {/* Right Column: Node Details */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Left Column: Node Details */}
           <div className="space-y-8">
             {selectedLocation ? (
               <div className="bg-white rounded-lg shadow-xl border border-slate-200 overflow-hidden h-full">
@@ -691,7 +687,7 @@ const App: React.FC = () => {
                 <div className="p-8">
                   <div className="flex justify-between items-start mb-8">
                     <div>
-                      <span className="text-xs font-black text-blue-600 uppercase tracking-widest mb-2 block">
+                      <span className="text-xs font-black text-blue-600 uppercase tracking-widest mb-4 block">
                         {selectedLocation.type === 'OFFICIAL' ? 'Official Reference' : 'Hyperlocal Node'}
                       </span>
                       <h2 className="text-2xl font-black text-slate-900 leading-tight">{selectedLocation.name}</h2>
@@ -845,6 +841,22 @@ const App: React.FC = () => {
                 Click a node <br /> to reveal analytics.
               </div>
             )}
+          </div>
+
+          {/* Right Column: Sprinkler Control */}
+          <div className="space-y-8">
+            <SprinklerControl
+              status={sprinklerStatus}
+              history={sprinklerHistory}
+              forecastPeakAQI={forecastPeakAQI}
+              onTrigger={(id) => id && handleTriggerSprinkler(id, true)}
+              onStop={handleStopSprinkler}
+              onToggleMode={handleToggleMode}
+              selectedId={selectedId}
+              nodeName={selectedLocation?.name}
+              onSetThreshold={(val) => setSprinklerStatus(p => ({ ...p, threshold: val }))}
+              isHardwareActive={selectedLocation?.currentReading?.sprinklerActive}
+            />
           </div>
         </div>
 

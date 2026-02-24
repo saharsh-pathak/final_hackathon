@@ -258,10 +258,10 @@ export const predictWithGemini = async (history: DataPoint[]): Promise<{ predict
         const prompt = `
             You are an environmental AI expert. Based on the following last 60 minutes of hyperlocal AQI data, predict the next 30 minutes (6 points at 5-minute intervals).
             
-            STRICT CONSTRAINTS FOR DEMO:
-            - All predicted AQI values MUST fluctuate between 20 and 95.
-            - Even if the current trend is high or low, the demo forecast must remain within this satisfactory range [20, 95].
-            - Ensure the values look realistic with slight fluctuations (not a flat line).
+            CONSTRAINTS:
+            - All predicted AQI values MUST be realistic and follow the trend of the historical data.
+            - Values should show gradual change from the current level, with slight natural fluctuations.
+            - AQI values must stay within [1, 500].
 
             Current History:
             ${dataString}
@@ -276,7 +276,7 @@ export const predictWithGemini = async (history: DataPoint[]): Promise<{ predict
                     {"aqi": number, "minutes_ahead": 25},
                     {"aqi": number, "minutes_ahead": 30}
                 ],
-                "reasoning": "A concise 1-sentence explanation of the trend (satisfying the 20-95 AQI demo constraint)."
+                "reasoning": "A concise 1-sentence explanation of the trend."
             }
         `;
 
@@ -295,7 +295,7 @@ export const predictWithGemini = async (history: DataPoint[]): Promise<{ predict
 
         const predictions: PredictionPoint[] = data.forecast.map((f: any) => ({
             timestamp: new Date(latestTimestamp + f.minutes_ahead * 60000).toISOString(),
-            aqi: Math.max(20, Math.min(95, Math.round(f.aqi))),
+            aqi: Math.max(1, Math.min(500, Math.round(f.aqi))),
             type: 'forecast' as const,
             isAI: true
         }));
@@ -367,7 +367,7 @@ export const predictWithML = async (history: DataPoint[]): Promise<{ predictions
             const progress = i / 6;
             const interpolated = startAQI + totalDelta * progress;
             const drift = (Math.random() - 0.5) * 3;
-            const finalAqi = Math.max(20, Math.min(95, Math.round(interpolated + drift)));
+            const finalAqi = Math.max(1, Math.min(500, Math.round(interpolated + drift)));
 
             predictions.push({
                 timestamp: new Date(latestTimestamp + i * 5 * 60000).toISOString(),
@@ -433,7 +433,7 @@ export const predictNext30Minutes = async (history: DataPoint[]): Promise<{ pred
         for (let i = 1; i <= 6; i++) {
             // Add a small random fluctuation for a more realistic demo look
             const fluctuation = (Math.random() - 0.5) * 4;
-            const finalAqi = Math.max(20, Math.min(95, Math.round(lastVal + fluctuation)));
+            const finalAqi = Math.max(1, Math.min(500, Math.round(lastVal + fluctuation)));
 
             predictions.push({
                 timestamp: new Date(baseTs + i * 5 * 60000).toISOString(),
@@ -458,7 +458,7 @@ export const predictNext30Minutes = async (history: DataPoint[]): Promise<{ pred
         // Apply trend but add slight demo fluctuation
         const drift = (Math.random() - 0.5) * 3;
         let predictedAQI = Math.round(dampenedM * x + b + drift);
-        predictedAQI = Math.max(20, Math.min(95, predictedAQI));
+        predictedAQI = Math.max(1, Math.min(500, predictedAQI));
 
         predictions.push({
             timestamp: new Date(futureTime).toISOString(),

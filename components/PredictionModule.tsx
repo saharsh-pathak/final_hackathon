@@ -120,7 +120,29 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
             const latestTs = history[history.length - 1].timestamp;
             const chartHistory = history.filter(h => latestTs - h.timestamp <= 60 * 60 * 1000);
 
-            const { predictions, reasoning } = await predictNext30Minutes(history);
+            let { predictions, reasoning } = await predictNext30Minutes(history);
+
+            // For simulated nodes (not node-1), force a gradual AQI decrease
+            // to show the sprinkler mitigation effect
+            if (selectedId && selectedId !== 'node-1') {
+                const baseAqi = currentAQIRef.current || chartHistory[chartHistory.length - 1]?.aqi || 100;
+                const latestTs2 = chartHistory[chartHistory.length - 1]?.timestamp
+                    ? new Date(chartHistory[chartHistory.length - 1].timestamp).getTime()
+                    : Date.now();
+                // ~20% total decrease over 30 min
+                const dropPerStep = baseAqi * 0.035;
+                predictions = Array.from({ length: 6 }, (_, i) => {
+                    const drift = (Math.random() - 0.3) * 4; // slight bias downward
+                    const predicted = Math.max(1, Math.round(baseAqi - dropPerStep * (i + 1) + drift));
+                    return {
+                        timestamp: new Date(latestTs2 + (i + 1) * 5 * 60000).toISOString(),
+                        aqi: predicted,
+                        type: 'forecast' as const,
+                        isAI: true,
+                    };
+                });
+                reasoning = `Forecast shows gradual AQI decrease from ${baseAqi} → ~${Math.round(baseAqi * 0.8)} over 30 minutes (sprinkler mitigation).`;
+            }
 
             const lastHistorical = chartHistory[chartHistory.length - 1];
             const unifiedData = [
@@ -152,19 +174,21 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
     // ─── 5-minute cycle ──────────────────────────────────────────────────────
     useEffect(() => {
         const FIVE_MINUTES = 5 * 60 * 1000;
-        const STARTUP_DELAY = 30 * 1000;
-        const timeSince = Date.now() - lastForecastTimestampRef.current;
 
-        let startupTimeout: ReturnType<typeof setTimeout> | null = null;
+        // Reset state when node changes so we don't show stale data
+        setChartData([]);
+        setAiReasoning('');
+        setLoading(true);
+        isRunningRef.current = false;
+        lastForecastTimestampRef.current = 0;
 
-        if (lastForecastTimestampRef.current === 0 || timeSince >= FIVE_MINUTES) {
-            startupTimeout = setTimeout(() => refreshPredictions(), STARTUP_DELAY);
-        }
+        // Run prediction immediately for the new node (small delay for state to settle)
+        const startupTimeout = setTimeout(() => refreshPredictions(), 500);
 
         const interval = setInterval(() => refreshPredictions(), FIVE_MINUTES);
 
         return () => {
-            if (startupTimeout) clearTimeout(startupTimeout);
+            clearTimeout(startupTimeout);
             clearInterval(interval);
         };
     }, [selectedId]);
@@ -177,8 +201,10 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
         let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 
         if (wasOffline && isNowOnline) {
-            // Show countdown while waiting
-            setConnectingCountdown(30);
+            // Clear any stale running lock and immediately queue a refresh
+            isRunningRef.current = false;
+            setConnectingCountdown(2);
+
             if (connectingTimerRef.current) clearInterval(connectingTimerRef.current);
             connectingTimerRef.current = setInterval(() => {
                 setConnectingCountdown(prev => {
@@ -192,8 +218,9 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
 
             reconnectTimeout = setTimeout(() => {
                 if (connectingTimerRef.current) clearInterval(connectingTimerRef.current);
+                isRunningRef.current = false; // Force unlock before retrying
                 refreshPredictions();
-            }, 30_000);
+            }, 2000);
         }
 
         prevAQIRef.current = currentAQI;
@@ -336,7 +363,7 @@ const PredictionModule: React.FC<PredictionModuleProps> = ({
                 {(isOffline || isConnecting) && !loading && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ paddingTop: '28px' }}>
                         <p className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                            {isOffline ? 'Waiting for sensor data…' : 'Reconnecting to Node 1…'}
+                            {isOffline ? 'Waiting for sensor data…' : `Reconnecting to ${nodeName || 'Node'}…`}
                         </p>
                     </div>
                 )}
