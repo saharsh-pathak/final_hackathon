@@ -636,12 +636,26 @@ const App: React.FC = () => {
 
 
           <div className="flex items-center gap-6">
-            {/* Firebase Live Status Indicator */}
-            <div className="flex items-center gap-2 bg-slate-100 px-3 py-2 rounded-full border border-slate-200 shadow-sm">
-              <div className={`h-2 w-2 rounded-full ${node1Connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-              <span className="text-xs font-black text-slate-500 uppercase tracking-widest">
-                {node1Connected ? 'Node 1: Live' : 'Node 1: Offline'}
-              </span>
+            {/* Node Selector Dropdown */}
+            <div className="relative flex items-center gap-2 bg-slate-100 px-1 py-1 rounded-full border border-slate-200 shadow-sm">
+              {selectedId === 'node-1' && (
+                <div className={`ml-2 h-2 w-2 rounded-full shrink-0 ${node1Connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+              )}
+              <select
+                value={selectedId || ''}
+                onChange={(e) => setSelectedId(e.target.value)}
+                className="appearance-none bg-transparent text-xs font-black text-slate-600 uppercase tracking-widest pr-6 pl-2 py-1.5 cursor-pointer focus:outline-none"
+                style={{ minWidth: '180px' }}
+              >
+                {locations.filter(l => l.type === 'TEMP_NODE').map(loc => (
+                  <option key={loc.id} value={loc.id}>
+                    {loc.name} {loc.id === 'node-1' ? (node1Connected ? '● Live' : '● Offline') : '● Simulated'}
+                  </option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </div>
             </div>
             <div className="text-right">
               <span className="text-xs font-black text-slate-400 uppercase block mb-1">Colony Average</span>
@@ -653,71 +667,8 @@ const App: React.FC = () => {
 
       <main className="max-w-7xl mx-auto px-4 py-8 md:px-8 space-y-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left Column: Node Grid and Sprinkler Control */}
+          {/* Left Column: Sprinkler Control */}
           <div className="space-y-8">
-
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              {locations.filter(l => l.type === 'TEMP_NODE').map(loc => {
-                const currentAqi = loc.currentReading.aqi;
-                const currentCategory = getCategoryFromAQI(currentAqi);
-                const info = getAqiInfo(currentCategory);
-                const lastTreated = zoneLastTreated[loc.id];
-                const minutesSince = lastTreated ? (new Date().getTime() - lastTreated.getTime()) / 60000 : 999;
-                const isRecentlyTreated = minutesSince < 60;
-                const isLiveNode = loc.id === 'node-1' && node1Connected;
-                const isNode1 = loc.id === 'node-1';
-
-                // 2. No border highlight - always standard style unless selected
-                const borderClass = selectedId === loc.id
-                  ? 'bg-white border-blue-900 shadow-xl -translate-y-1'
-                  : 'bg-white border-transparent hover:border-slate-200 shadow-sm';
-
-                return (
-                  <div
-                    key={loc.id}
-                    onClick={() => {
-                      setSelectedId(loc.id);
-                    }}
-                    className={`p-5 rounded-lg text-left border-4 transition-all relative cursor-pointer ${borderClass}`}
-                  >
-                    {isLiveNode && (
-                      <div className="absolute top-2 right-2 flex items-center gap-1">
-                        <span className="relative flex h-2 w-2">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                        </span>
-                        <span className="text-xs font-black text-green-600 uppercase" style={{ fontSize: '0.65rem' }}>LIVE</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between items-start mb-3">
-                      <h4 className="text-xs font-black text-slate-500 line-clamp-1 uppercase tracking-tight" style={{ fontSize: '0.65rem' }}>{loc.name}</h4>
-                    </div>
-                    <div className="text-2xl font-black text-slate-900 tracking-tighter mb-2 mt-auto">
-                      {isNaN(currentAqi) ? 'NaN' : currentAqi} <span className="text-[9px] font-black text-slate-300 uppercase">AQI</span>
-                    </div>
-                    <div className={`text-[9px] font-black uppercase tracking-widest ${isNaN(currentAqi) ? 'text-slate-300' : (info?.textColor || 'text-slate-400')}`}>
-                      {isNaN(currentAqi) ? 'Offline' : currentCategory}
-                    </div>
-
-                    {isNode1 && (
-                      <div className="mt-3 pt-3 border-t border-slate-100">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Sprinkler</span>
-                          <div className="flex items-center gap-1.5">
-                            <span className={`flex h-1.5 w-1.5 rounded-full ${loc.currentReading.sprinklerActive ? 'bg-green-500 animate-pulse' : 'bg-slate-300'}`}></span>
-                            <span className={`text-[9px] font-black uppercase ${loc.currentReading.sprinklerActive ? 'text-green-600' : 'text-slate-500'}`}>
-                              {loc.currentReading.sprinklerActive ? 'Active' : 'Off'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                  </div>
-                );
-              })}
-            </div>
-
             <SprinklerControl
               status={sprinklerStatus}
               history={sprinklerHistory}
